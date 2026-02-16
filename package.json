@@ -1,0 +1,17 @@
+{
+  "name": "cc4me-network-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/relay",
+    "packages/sdk"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
