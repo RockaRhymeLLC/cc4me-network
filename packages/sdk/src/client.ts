@@ -5,7 +5,7 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { createPrivateKey, type KeyObject } from 'node:crypto';
+import { createPrivateKey, sign as cryptoSign, type KeyObject } from 'node:crypto';
 import type {
   CC4MeNetworkOptions,
   SendResult,
@@ -22,6 +22,7 @@ import {
   HttpRelayAPI,
   type IRelayAPI,
   type RelayContact,
+  type RelayBroadcast,
 } from './relay-api.js';
 import {
   loadCache,
@@ -68,6 +69,9 @@ export class CC4MeNetwork extends EventEmitter {
   private cachePath: string;
   private retryQueue: RetryQueue;
   private deliverFn: DeliverFn;
+  private deliveryReports: Map<string, DeliveryReport> = new Map();
+  private seenBroadcastIds: Set<string> = new Set();
+  private seenContactRequestIds: Set<string> = new Set();
 
   constructor(options: CC4MeNetworkInternalOptions) {
     super();
@@ -103,13 +107,17 @@ export class CC4MeNetwork extends EventEmitter {
       options.retryProcessInterval,
     );
 
-    // Wire retry queue's send function
+    // Wire retry queue's send function with delivery tracking
     this.retryQueue.setSendFn(async (msg) => {
       const contact = this.getCachedContact(msg.recipient);
       if (!contact) return false;
 
+      const startTime = Date.now();
       const presence = await this.checkPresence(msg.recipient);
-      if (!presence.online) return false;
+      if (!presence.online) {
+        this.recordAttempt(msg.messageId, presence.online, presence.endpoint || '', undefined, 'Recipient offline', Date.now() - startTime);
+        return false;
+      }
 
       const endpoint = presence.endpoint || contact.endpoint;
       if (!endpoint) return false;
@@ -123,7 +131,10 @@ export class CC4MeNetwork extends EventEmitter {
         messageId: msg.messageId,
       });
 
-      return this.deliverFn(endpoint, envelope);
+      const success = await this.deliverFn(endpoint, envelope);
+      this.recordAttempt(msg.messageId, true, endpoint, success ? 200 : 0, success ? undefined : 'Delivery failed', Date.now() - startTime);
+      if (success) this.finalizeReport(msg.messageId, 'delivered');
+      return success;
     });
 
     // Forward retry queue delivery-status events
@@ -329,26 +340,36 @@ export class CC4MeNetwork extends EventEmitter {
       recipientPublicKeyBase64: contact.publicKey,
     });
 
+    // Initialize delivery report
+    this.initReport(envelope.messageId);
+
     // Check presence
+    const startTime = Date.now();
     const presence = await this.checkPresence(to);
 
     if (!presence.online) {
+      this.recordAttempt(envelope.messageId, false, '', undefined, 'Recipient offline', Date.now() - startTime);
       // Offline — queue for retry
       const queued = this.retryQueue.enqueue(envelope.messageId, to, payload);
       if (queued) {
         return { status: 'queued', messageId: envelope.messageId };
       }
+      this.finalizeReport(envelope.messageId, 'failed');
       return { status: 'failed', messageId: envelope.messageId, error: 'Retry queue full' };
     }
 
     // Online — try direct delivery
     const endpoint = presence.endpoint || contact.endpoint;
     if (!endpoint) {
+      this.finalizeReport(envelope.messageId, 'failed');
       return { status: 'failed', messageId: envelope.messageId, error: 'No endpoint for recipient' };
     }
 
     const delivered = await this.deliverFn(endpoint, envelope);
+    this.recordAttempt(envelope.messageId, true, endpoint, delivered ? 200 : 0, delivered ? undefined : 'Delivery failed', Date.now() - startTime);
+
     if (delivered) {
+      this.finalizeReport(envelope.messageId, 'delivered');
       return { status: 'delivered', messageId: envelope.messageId };
     }
 
@@ -357,6 +378,7 @@ export class CC4MeNetwork extends EventEmitter {
     if (queued) {
       return { status: 'queued', messageId: envelope.messageId };
     }
+    this.finalizeReport(envelope.messageId, 'failed');
     return { status: 'failed', messageId: envelope.messageId, error: 'Delivery failed and retry queue full' };
   }
 
@@ -406,22 +428,113 @@ export class CC4MeNetwork extends EventEmitter {
     return msg;
   }
 
-  // --- Admin (implemented later) ---
+  // --- Admin ---
 
+  /**
+   * Get an admin interface using the provided admin private key.
+   * Admin ops require the caller to be registered as an admin on the relay.
+   */
   asAdmin(adminPrivateKey: Buffer) {
-    void adminPrivateKey;
+    const adminKeyObj = createPrivateKey({
+      key: adminPrivateKey,
+      format: 'der',
+      type: 'pkcs8',
+    });
+    const relayAPI = this.relayAPI;
+
     return {
-      broadcast: async (type: string, payload: Record<string, unknown>) => {
-        void type; void payload;
+      /**
+       * Send a signed admin broadcast.
+       * Payload is JSON-stringified and signed with the admin key.
+       */
+      broadcast: async (type: string, payload: Record<string, unknown>): Promise<void> => {
+        const payloadStr = JSON.stringify(payload);
+        const sig = cryptoSign(null, Buffer.from(payloadStr), adminKeyObj);
+        const signatureBase64 = Buffer.from(sig).toString('base64');
+        const result = await relayAPI.createBroadcast(type, payloadStr, signatureBase64);
+        if (!result.ok) {
+          throw new Error(result.error || 'Failed to create broadcast');
+        }
       },
-      approveAgent: async (name: string) => { void name; },
-      revokeAgent: async (name: string) => { void name; },
+
+      /** Approve a pending agent registration. */
+      approveAgent: async (name: string): Promise<void> => {
+        const result = await relayAPI.approveAgent(name);
+        if (!result.ok) {
+          throw new Error(result.error || 'Failed to approve agent');
+        }
+      },
+
+      /** Revoke an active agent. */
+      revokeAgent: async (name: string): Promise<void> => {
+        const result = await relayAPI.revokeAgent(name);
+        if (!result.ok) {
+          throw new Error(result.error || 'Failed to revoke agent');
+        }
+      },
     };
   }
 
+  // --- Broadcasts ---
+
+  /**
+   * Check for new broadcasts from the relay.
+   * Emits 'broadcast' event for each new broadcast found.
+   * Returns the list of new broadcasts.
+   */
+  async checkBroadcasts(): Promise<Broadcast[]> {
+    try {
+      const result = await this.relayAPI.listBroadcasts();
+      if (!result.ok || !result.data) return [];
+
+      const newBroadcasts: Broadcast[] = [];
+      for (const b of result.data) {
+        if (this.seenBroadcastIds.has(b.id)) continue;
+        this.seenBroadcastIds.add(b.id);
+
+        const broadcast: Broadcast = {
+          type: b.type,
+          payload: safeParse(b.payload),
+          sender: b.sender,
+          verified: true, // Relay verified the signature on creation
+        };
+        newBroadcasts.push(broadcast);
+        this.emit('broadcast', broadcast);
+      }
+      return newBroadcasts;
+    } catch {
+      return [];
+    }
+  }
+
+  // --- Contact Request Events ---
+
+  /**
+   * Check for new contact requests and emit events.
+   * Returns the list of new requests found.
+   */
+  async checkContactRequests(): Promise<ContactRequest[]> {
+    const requests = await this.getPendingRequests();
+    const newRequests: ContactRequest[] = [];
+
+    for (const req of requests) {
+      if (this.seenContactRequestIds.has(req.from)) continue;
+      this.seenContactRequestIds.add(req.from);
+      newRequests.push(req);
+      this.emit('contact-request', req);
+    }
+
+    return newRequests;
+  }
+
+  // --- Delivery Reports ---
+
+  /**
+   * Get diagnostic delivery report for a message.
+   * Tracks all delivery attempts, presence checks, and final status.
+   */
   getDeliveryReport(messageId: string): DeliveryReport | undefined {
-    void messageId;
-    return undefined;
+    return this.deliveryReports.get(messageId);
   }
 
   // --- Internal ---
@@ -447,6 +560,42 @@ export class CC4MeNetwork extends EventEmitter {
     }
   }
 
+  /** Initialize a delivery report for a message. */
+  private initReport(messageId: string): void {
+    this.deliveryReports.set(messageId, {
+      messageId,
+      attempts: [],
+      finalStatus: 'failed',
+    });
+  }
+
+  /** Record a delivery attempt. */
+  private recordAttempt(
+    messageId: string,
+    presenceCheck: boolean,
+    endpoint: string,
+    httpStatus: number | undefined,
+    error: string | undefined,
+    durationMs: number,
+  ): void {
+    const report = this.deliveryReports.get(messageId);
+    if (!report) return;
+    report.attempts.push({
+      timestamp: new Date().toISOString(),
+      presenceCheck,
+      endpoint,
+      httpStatus,
+      error,
+      durationMs,
+    });
+  }
+
+  /** Set the final status of a delivery report. */
+  private finalizeReport(messageId: string, status: DeliveryReport['finalStatus']): void {
+    const report = this.deliveryReports.get(messageId);
+    if (report) report.finalStatus = status;
+  }
+
   /** Update the local contacts cache. */
   private updateContactsCache(contacts: RelayContact[]): void {
     this.cache = {
@@ -470,4 +619,13 @@ function toContact(rc: RelayContact): Contact {
     endpoint: rc.endpoint || '',
     addedAt: rc.since,
   };
+}
+
+/** Safely parse a JSON string, returning empty object on failure. */
+function safeParse(json: string): Record<string, unknown> {
+  try {
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
 }

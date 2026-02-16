@@ -7,7 +7,7 @@
  *   Signing string: <METHOD> <PATH>\n<TIMESTAMP>\n<BODY_SHA256>
  */
 
-import { createHash, sign as cryptoSign, createPublicKey, type KeyObject } from 'node:crypto';
+import { createHash, sign as cryptoSign, type KeyObject } from 'node:crypto';
 
 export interface RelayContact {
   agent: string;
@@ -27,6 +27,15 @@ export interface RelayPresence {
   online: boolean;
   endpoint: string | null;
   lastSeen: string | null;
+}
+
+export interface RelayBroadcast {
+  id: string;
+  type: string;
+  payload: string;
+  sender: string;
+  signature: string;
+  createdAt: string;
 }
 
 export interface RelayResponse<T = unknown> {
@@ -52,6 +61,12 @@ export interface IRelayAPI {
   heartbeat(endpoint: string): Promise<RelayResponse>;
   getPresence(agent: string): Promise<RelayResponse<RelayPresence>>;
   batchPresence(agents: string[]): Promise<RelayResponse<RelayPresence[]>>;
+
+  // Admin
+  createBroadcast(type: string, payload: string, signature: string): Promise<RelayResponse<{ broadcastId: string }>>;
+  listBroadcasts(type?: string): Promise<RelayResponse<RelayBroadcast[]>>;
+  approveAgent(agent: string): Promise<RelayResponse>;
+  revokeAgent(agent: string): Promise<RelayResponse>;
 }
 
 /**
@@ -147,5 +162,22 @@ export class HttpRelayAPI implements IRelayAPI {
 
   async batchPresence(agents: string[]): Promise<RelayResponse<RelayPresence[]>> {
     return this.request<RelayPresence[]>('GET', `/presence/batch?agents=${agents.join(',')}`);
+  }
+
+  async createBroadcast(type: string, payload: string, signature: string): Promise<RelayResponse<{ broadcastId: string }>> {
+    return this.request<{ broadcastId: string }>('POST', '/admin/broadcast', { type, payload, signature });
+  }
+
+  async listBroadcasts(type?: string): Promise<RelayResponse<RelayBroadcast[]>> {
+    const path = type ? `/admin/broadcasts?type=${type}` : '/admin/broadcasts';
+    return this.request<RelayBroadcast[]>('GET', path);
+  }
+
+  async approveAgent(agent: string): Promise<RelayResponse> {
+    return this.request('POST', `/registry/agents/${agent}/approve`);
+  }
+
+  async revokeAgent(agent: string): Promise<RelayResponse> {
+    return this.request('POST', `/registry/agents/${agent}/revoke`);
   }
 }
