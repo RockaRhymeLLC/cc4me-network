@@ -202,7 +202,7 @@ export class HttpRelayAPI implements IRelayAPI {
   }
 
   async requestContact(toAgent: string, greeting?: string): Promise<RelayResponse> {
-    return this.request('POST', '/contacts/request', { toAgent, greeting });
+    return this.request('POST', '/contacts/request', { to: toAgent, greeting });
   }
 
   async acceptContact(agent: string): Promise<RelayResponse> {
