@@ -149,34 +149,53 @@ export class HttpRelayAPI implements IRelayAPI {
     path: string,
     body?: Record<string, unknown>,
   ): Promise<RelayResponse<T>> {
-    const bodyStr = body ? JSON.stringify(body) : '';
-    const timestamp = new Date().toISOString();
-    const bodyHash = hashBody(bodyStr);
-    const signingString = buildSigningString(method, path, timestamp, bodyHash);
-    const sig = cryptoSign(null, Buffer.from(signingString), this.privateKey);
-    const authHeader = `Signature ${this.username}:${Buffer.from(sig).toString('base64')}`;
+    const maxRetries = 2;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const bodyStr = body ? JSON.stringify(body) : '';
+      const timestamp = new Date().toISOString();
+      const bodyHash = hashBody(bodyStr);
+      const signingString = buildSigningString(method, path, timestamp, bodyHash);
+      const sig = cryptoSign(null, Buffer.from(signingString), this.privateKey);
+      const authHeader = `Signature ${this.username}:${Buffer.from(sig).toString('base64')}`;
 
-    const url = `${this.relayUrl}${path}`;
-    const headers: Record<string, string> = {
-      'Authorization': authHeader,
-      'X-Timestamp': timestamp,
-    };
-    if (bodyStr) headers['Content-Type'] = 'application/json';
+      const url = `${this.relayUrl}${path}`;
+      const headers: Record<string, string> = {
+        'Authorization': authHeader,
+        'X-Timestamp': timestamp,
+      };
+      if (bodyStr) headers['Content-Type'] = 'application/json';
 
-    try {
-      const res = await fetch(url, {
-        method,
-        headers,
-        body: bodyStr || undefined,
-      });
-      const data = await res.json() as T;
-      if (res.ok) {
-        return { ok: true, status: res.status, data };
+      try {
+        const res = await fetch(url, {
+          method,
+          headers,
+          body: bodyStr || undefined,
+        });
+        const text = await res.text();
+        let data: T;
+        try {
+          data = JSON.parse(text) as T;
+        } catch {
+          // Non-JSON response (e.g. Cloudflare challenge page) — retry
+          if (attempt < maxRetries) {
+            await new Promise(r => setTimeout(r, 200 * (attempt + 1)));
+            continue;
+          }
+          return { ok: false, status: res.status, error: `Non-JSON response (${text.slice(0, 80)})` };
+        }
+        if (res.ok) {
+          return { ok: true, status: res.status, data };
+        }
+        return { ok: false, status: res.status, error: (data as any)?.error || res.statusText };
+      } catch (err: any) {
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, 200 * (attempt + 1)));
+          continue;
+        }
+        return { ok: false, status: 0, error: err.message };
       }
-      return { ok: false, status: res.status, error: (data as any)?.error || res.statusText };
-    } catch (err: any) {
-      return { ok: false, status: 0, error: err.message };
     }
+    return { ok: false, status: 0, error: 'Max retries exceeded' };
   }
 
   async requestContact(toAgent: string, greeting?: string): Promise<RelayResponse> {

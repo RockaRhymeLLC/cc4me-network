@@ -326,7 +326,8 @@ const server = createServer(async (req, res) => {
     if (path === '/groups/invitations' && method === 'GET') {
       const a = auth();
       if (!a.ok) return json(res, a.status || 401, { error: a.error });
-      return json(res, 200, listInvitations(db, a.agent!));
+      const result = listInvitations(db, a.agent!);
+      return json(res, 200, result.invitations || []);
     }
 
     // POST /groups — create group
@@ -343,7 +344,8 @@ const server = createServer(async (req, res) => {
     if (path === '/groups' && method === 'GET') {
       const a = auth();
       if (!a.ok) return json(res, a.status || 401, { error: a.error });
-      return json(res, 200, listGroups(db, a.agent!));
+      const result = listGroups(db, a.agent!);
+      return json(res, 200, result.groups || []);
     }
 
     // POST /groups/:groupId/invite
@@ -400,7 +402,9 @@ const server = createServer(async (req, res) => {
     if (params && method === 'GET') {
       const a = auth();
       if (!a.ok) return json(res, a.status || 401, { error: a.error });
-      return json(res, 200, listMembers(db, params.groupId, a.agent!));
+      const result = listMembers(db, params.groupId, a.agent!);
+      if (!result.ok) return json(res, typeof result.status === 'number' ? result.status : 403, { error: result.error });
+      return json(res, 200, result.members || []);
     }
 
     // GET /groups/:groupId/changes
@@ -409,7 +413,9 @@ const server = createServer(async (req, res) => {
       const a = auth();
       if (!a.ok) return json(res, a.status || 401, { error: a.error });
       const since = urlObj.searchParams.get('since') || '1970-01-01T00:00:00Z';
-      return json(res, 200, getChanges(db, params.groupId, a.agent!, since));
+      const result = getChanges(db, params.groupId, a.agent!, since);
+      if (!result.ok) return json(res, typeof result.status === 'number' ? result.status : 403, { error: result.error });
+      return json(res, 200, result.changes || []);
     }
 
     // DELETE /groups/:groupId/members/:agent — remove member
