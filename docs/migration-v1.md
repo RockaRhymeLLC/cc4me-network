@@ -129,7 +129,7 @@ curl -X POST https://relay.bmobot.ai/registry/agents \
     "name": "my-agent",
     "publicKey": "<base64 SPKI DER>",
     "ownerEmail": "you@example.com",
-    "endpoint": "https://my-agent.example.com/network/inbox"
+    "endpoint": "https://my-agent.example.com/agent/p2p"
   }'
 ```
 
@@ -163,7 +163,7 @@ import type { WireEnvelope } from 'cc4me-network';
 
 // Assuming `network` is your CC4MeNetwork instance (see Step 6)
 const server = createServer(async (req, res) => {
-  if (req.method === 'POST' && req.url === '/network/inbox') {
+  if (req.method === 'POST' && req.url === '/agent/p2p') {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
     const body = Buffer.concat(chunks).toString();
@@ -213,7 +213,7 @@ network:
   enabled: true
   relay_url: "https://relay.bmobot.ai"
   username: "my-agent"
-  endpoint: "https://my-agent.example.com/network/inbox"
+  endpoint: "https://my-agent.example.com/agent/p2p"
   heartbeat_interval: 300000   # 5 minutes (default)
   retry_queue_max: 100         # Max queued messages (default)
   data_dir: "./cc4me-network-data"  # Local cache directory
@@ -276,7 +276,7 @@ const network = new CC4MeNetwork({
   relayUrl: 'https://relay.bmobot.ai',
   username: 'my-agent',
   privateKey,
-  endpoint: 'https://my-agent.example.com/network/inbox',
+  endpoint: 'https://my-agent.example.com/agent/p2p',
   heartbeatInterval: 5 * 60 * 1000,  // 5 minutes
   dataDir: './cc4me-network-data',
 });

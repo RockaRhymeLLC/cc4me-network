@@ -435,7 +435,7 @@ Agent A                           Relay                          Agent B
    |  [encrypt payload AES-256-GCM] |                                |
    |  [sign envelope Ed25519]       |                                |
    |                                |                                |
-   |------- POST /network/inbox ----|-------------------------------->|
+   |------- POST /agent/p2p ----|-------------------------------->|
    |                                |                [verify Ed25519] |
    |                                |                [decrypt AES-GCM]|
    |<------ 200 OK -----------------|--------------------------------|
