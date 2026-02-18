@@ -21,6 +21,8 @@ import type {
   DeliveryReport,
   Contact,
   WireEnvelope,
+  KeyRotationResult,
+  KeyRotationCommunityResult,
 } from './types.js';
 import {
   HttpRelayAPI,
@@ -691,12 +693,52 @@ export class CC4MeNetwork extends EventEmitter {
 
   // --- Key Management ---
 
-  /** Rotate this agent's public key (authenticated — uses current key to sign). */
-  async rotateKey(newPublicKey: string): Promise<void> {
-    const result = await this.relayAPI.rotateKey(this.options.username, newPublicKey);
-    if (!result.ok) {
-      throw new Error(result.error || 'Failed to rotate key');
+  /**
+   * Rotate this agent's public key across communities.
+   *
+   * Multi-community behavior:
+   * - No options: fans out to all communities using the DEFAULT keypair
+   * - communities option: targets specific communities
+   * - Returns per-community success/failure results
+   * - Emits 'key:rotation-partial' on partial failure
+   * - Throws only if ALL communities fail
+   */
+  async rotateKey(newPublicKey: string, options?: { communities?: string[] }): Promise<KeyRotationResult> {
+    const targets = options?.communities ?? this.communityManager.getDefaultKeyCommunities();
+    const results: KeyRotationCommunityResult[] = [];
+
+    for (const communityName of targets) {
+      try {
+        const api = this.communityManager.getActiveApi(communityName);
+        const result = await api.rotateKey(this.options.username, newPublicKey);
+        results.push({
+          community: communityName,
+          success: result.ok,
+          error: result.ok ? undefined : (result.error || 'Unknown error'),
+        });
+      } catch (err) {
+        results.push({
+          community: communityName,
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
+
+    const successes = results.filter(r => r.success);
+    const failures = results.filter(r => !r.success);
+
+    // Partial failure — some succeeded, some failed
+    if (failures.length > 0 && successes.length > 0) {
+      this.emit('key:rotation-partial', { results });
+    }
+
+    // Total failure
+    if (successes.length === 0) {
+      throw new Error(`Key rotation failed on all communities: ${failures.map(f => f.community).join(', ')}`);
+    }
+
+    return { results };
   }
 
   /** Initiate key recovery (unauthenticated — verifies via owner email). */

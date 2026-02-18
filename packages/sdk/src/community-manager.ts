@@ -254,6 +254,29 @@ export class CommunityRelayManager extends EventEmitter {
     }
     return community;
   }
+
+  /**
+   * Get community names that use the default keypair (no community-specific privateKey).
+   * Used by rotateKey() to determine which relays to fan out to.
+   */
+  getDefaultKeyCommunities(): string[] {
+    return this.communityOrder.filter(name => {
+      const state = this.communities.get(name)!;
+      return !state.config.privateKey;
+    });
+  }
+
+  /**
+   * Get community names that use a specific community-level keypair.
+   * Returns communities whose config.privateKey matches the given key.
+   */
+  getCommunitiesWithKey(communityName: string): string[] {
+    const target = this.communities.get(communityName);
+    if (!target) return [];
+    if (!target.config.privateKey) return this.getDefaultKeyCommunities();
+    // Community-specific key — only that community
+    return [communityName];
+  }
 }
 
 /** Parsed result of a qualified or unqualified agent name. */

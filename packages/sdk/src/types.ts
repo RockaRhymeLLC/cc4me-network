@@ -123,6 +123,18 @@ export interface GroupSendResult {
   failed: string[];
 }
 
+/** Per-community result from a multi-community key rotation. */
+export interface KeyRotationCommunityResult {
+  community: string;
+  success: boolean;
+  error?: string;
+}
+
+/** Result from rotateKey() — includes per-community breakdown. */
+export interface KeyRotationResult {
+  results: KeyRotationCommunityResult[];
+}
+
 /**
  * Wire format envelope — every P2P message uses this structure.
  */

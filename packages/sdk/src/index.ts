@@ -36,6 +36,8 @@ export type {
   DeliveryReport,
   Contact,
   WireEnvelope,
+  KeyRotationResult,
+  KeyRotationCommunityResult,
 } from './types.js';
 
 // Community management
