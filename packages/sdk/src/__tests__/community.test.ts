@@ -1044,3 +1044,410 @@ describe('t-109: Backward compatibility with single relayUrl', () => {
     assert.equal(net.communities[0].name, 'default');
   });
 });
+
+// ─── t-106: Qualified name parsing and resolution ────────────────────────────
+
+import { parseQualifiedName } from '../community-manager.js';
+
+describe('t-106: Qualified name parsing and resolution', () => {
+  const kp = genKeypair();
+  const kp2 = genKeypair();
+  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+
+  afterEach(async () => {
+    for (const { networks, dir } of cleanups) {
+      for (const n of networks) {
+        try { await n.stop(); } catch { /* ignore */ }
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+    cleanups = [];
+  });
+
+  function track(dir: string, ...networks: CC4MeNetwork[]) {
+    cleanups.push({ dir, networks });
+  }
+
+  // Steps 1-3: Pure parsing
+  it('steps 1-3: parseQualifiedName parsing', () => {
+    // Step 1: qualified name
+    const r1 = parseQualifiedName('bmo@relay.bmobot.ai');
+    assert.equal(r1.username, 'bmo');
+    assert.equal(r1.hostname, 'relay.bmobot.ai');
+
+    // Step 2: unqualified name
+    const r2 = parseQualifiedName('bmo');
+    assert.equal(r2.username, 'bmo');
+    assert.equal(r2.hostname, undefined);
+
+    // Step 3: hostname only, not full URL
+    const r3 = parseQualifiedName('agent@example.com');
+    assert.equal(r3.username, 'agent');
+    assert.equal(r3.hostname, 'example.com');
+  });
+
+  // Step 4: Unqualified resolution — contact in second community only
+  it('step 4: unqualified name resolves to second community when only found there', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc4me-resolve-'));
+    const dataDir = join(dir, 'data');
+
+    const homeContacts: RelayContact[] = [];
+    const companyContacts: RelayContact[] = [
+      { agent: 'r2', publicKey: kp2.publicKeyBase64, endpoint: 'https://r2.acme.com/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
+    ];
+
+    const net = new CC4MeNetwork({
+      username: 'bmo',
+      privateKey: kp.privateKeyDer,
+      endpoint: 'https://bmo.example.com/inbox',
+      communities: [
+        { name: 'home', primary: 'https://relay.bmobot.ai' },
+        { name: 'company', primary: 'https://relay.acme.com' },
+      ],
+      relayAPIs: {
+        'home:primary': createContactsMockRelayAPI(homeContacts),
+        'company:primary': createContactsMockRelayAPI(companyContacts),
+      },
+      deliverFn: async () => true,
+      dataDir,
+    } as CC4MeNetworkInternalOptions);
+    track(dir, net);
+    await net.start();
+
+    const resolved = net.resolveContactCommunity('r2');
+    assert.equal(resolved.username, 'r2');
+    assert.equal(resolved.community, 'company');
+  });
+
+  // Step 5: Unqualified in both → first community wins
+  it('step 5: unqualified name in both communities resolves to first', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc4me-resolve2-'));
+    const dataDir = join(dir, 'data');
+
+    const homeContacts: RelayContact[] = [
+      { agent: 'bmo', publicKey: kp2.publicKeyBase64, endpoint: 'https://bmo.home/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
+    ];
+    const companyContacts: RelayContact[] = [
+      { agent: 'bmo', publicKey: kp2.publicKeyBase64, endpoint: 'https://bmo.acme/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
+    ];
+
+    const net = new CC4MeNetwork({
+      username: 'test-agent',
+      privateKey: kp.privateKeyDer,
+      endpoint: 'https://test.example.com/inbox',
+      communities: [
+        { name: 'home', primary: 'https://relay.bmobot.ai' },
+        { name: 'company', primary: 'https://relay.acme.com' },
+      ],
+      relayAPIs: {
+        'home:primary': createContactsMockRelayAPI(homeContacts),
+        'company:primary': createContactsMockRelayAPI(companyContacts),
+      },
+      deliverFn: async () => true,
+      dataDir,
+    } as CC4MeNetworkInternalOptions);
+    track(dir, net);
+    await net.start();
+
+    const resolved = net.resolveContactCommunity('bmo');
+    assert.equal(resolved.community, 'home'); // First community wins
+  });
+
+  // Step 6: Qualified name routes directly to matching community
+  it('step 6: qualified name routes to matching community', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc4me-resolve3-'));
+    const dataDir = join(dir, 'data');
+
+    const net = new CC4MeNetwork({
+      username: 'bmo',
+      privateKey: kp.privateKeyDer,
+      endpoint: 'https://bmo.example.com/inbox',
+      communities: [
+        { name: 'home', primary: 'https://relay.bmobot.ai' },
+        { name: 'company', primary: 'https://relay.acme.com' },
+      ],
+      relayAPIs: {
+        'home:primary': createContactsMockRelayAPI([]),
+        'company:primary': createContactsMockRelayAPI([]),
+      },
+      deliverFn: async () => true,
+      dataDir,
+    } as CC4MeNetworkInternalOptions);
+    track(dir, net);
+    await net.start();
+
+    const resolved = net.resolveContactCommunity('r2@relay.acme.com');
+    assert.equal(resolved.username, 'r2');
+    assert.equal(resolved.community, 'company');
+  });
+
+  // Step 7: Qualified with unknown hostname throws
+  it('step 7: unknown hostname throws', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc4me-resolve4-'));
+    const dataDir = join(dir, 'data');
+
+    const net = new CC4MeNetwork({
+      username: 'bmo',
+      privateKey: kp.privateKeyDer,
+      endpoint: 'https://bmo.example.com/inbox',
+      communities: [
+        { name: 'home', primary: 'https://relay.bmobot.ai' },
+      ],
+      relayAPIs: {
+        'home:primary': createContactsMockRelayAPI([]),
+      },
+      deliverFn: async () => true,
+      dataDir,
+    } as CC4MeNetworkInternalOptions);
+    track(dir, net);
+    await net.start();
+
+    assert.throws(
+      () => net.resolveContactCommunity('r2@unknown.relay.com'),
+      /No community found for hostname/,
+    );
+  });
+
+  // Step 8: Unqualified not found → defaults to first community
+  it('step 8: unqualified unknown defaults to first community', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc4me-resolve5-'));
+    const dataDir = join(dir, 'data');
+
+    const net = new CC4MeNetwork({
+      username: 'bmo',
+      privateKey: kp.privateKeyDer,
+      endpoint: 'https://bmo.example.com/inbox',
+      communities: [
+        { name: 'home', primary: 'https://relay.bmobot.ai' },
+        { name: 'company', primary: 'https://relay.acme.com' },
+      ],
+      relayAPIs: {
+        'home:primary': createContactsMockRelayAPI([]),
+        'company:primary': createContactsMockRelayAPI([]),
+      },
+      deliverFn: async () => true,
+      dataDir,
+    } as CC4MeNetworkInternalOptions);
+    track(dir, net);
+    await net.start();
+
+    const resolved = net.resolveContactCommunity('unknown-agent');
+    assert.equal(resolved.community, 'home'); // First configured
+  });
+
+  // Step 9: Debug log on non-primary resolution
+  it('step 9: debug event emitted for non-primary resolution', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc4me-resolve6-'));
+    const dataDir = join(dir, 'data');
+
+    const companyContacts: RelayContact[] = [
+      { agent: 'r2', publicKey: kp2.publicKeyBase64, endpoint: 'https://r2.acme.com/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
+    ];
+
+    const net = new CC4MeNetwork({
+      username: 'bmo',
+      privateKey: kp.privateKeyDer,
+      endpoint: 'https://bmo.example.com/inbox',
+      communities: [
+        { name: 'home', primary: 'https://relay.bmobot.ai' },
+        { name: 'company', primary: 'https://relay.acme.com' },
+      ],
+      relayAPIs: {
+        'home:primary': createContactsMockRelayAPI([]),
+        'company:primary': createContactsMockRelayAPI(companyContacts),
+      },
+      deliverFn: async () => true,
+      dataDir,
+    } as CC4MeNetworkInternalOptions);
+    track(dir, net);
+    await net.start();
+
+    const debugMessages: string[] = [];
+    net.on('debug', (msg: string) => debugMessages.push(msg));
+
+    net.resolveContactCommunity('r2');
+    assert.equal(debugMessages.length, 1);
+    assert.ok(debugMessages[0]!.includes('r2'));
+    assert.ok(debugMessages[0]!.includes('company'));
+    assert.ok(debugMessages[0]!.includes('not primary'));
+  });
+});
+
+// ─── t-107: Community-scoped contact and messaging operations ────────────────
+
+describe('t-107: Community-scoped contact and messaging operations', () => {
+  const kp = genKeypair();
+  const kp2 = genKeypair();
+  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+
+  afterEach(async () => {
+    for (const { networks, dir } of cleanups) {
+      for (const n of networks) {
+        try { await n.stop(); } catch { /* ignore */ }
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+    cleanups = [];
+  });
+
+  function track(dir: string, ...networks: CC4MeNetwork[]) {
+    cleanups.push({ dir, networks });
+  }
+
+  // Step 1: getContacts from all communities merged
+  it('step 1: getContacts returns contacts from all communities', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc4me-scoped1-'));
+    const dataDir = join(dir, 'data');
+
+    const homeContacts: RelayContact[] = [
+      { agent: 'alice', publicKey: 'pk-alice', endpoint: 'https://alice.home/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
+      { agent: 'bob', publicKey: 'pk-bob', endpoint: 'https://bob.home/inbox', since: '2025-01-01', online: false, lastSeen: '2025-06-01', keyUpdatedAt: null, recoveryInProgress: false },
+    ];
+    const companyContacts: RelayContact[] = [
+      { agent: 'charlie', publicKey: 'pk-charlie', endpoint: 'https://charlie.acme/inbox', since: '2025-03-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
+      { agent: 'diana', publicKey: 'pk-diana', endpoint: 'https://diana.acme/inbox', since: '2025-03-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
+    ];
+
+    const net = new CC4MeNetwork({
+      username: 'bmo',
+      privateKey: kp.privateKeyDer,
+      endpoint: 'https://bmo.example.com/inbox',
+      communities: [
+        { name: 'home', primary: 'https://relay.bmobot.ai' },
+        { name: 'company', primary: 'https://relay.acme.com' },
+      ],
+      relayAPIs: {
+        'home:primary': createContactsMockRelayAPI(homeContacts),
+        'company:primary': createContactsMockRelayAPI(companyContacts),
+      },
+      deliverFn: async () => true,
+      dataDir,
+    } as CC4MeNetworkInternalOptions);
+    track(dir, net);
+    await net.start();
+
+    const contacts = await net.getContacts();
+    assert.equal(contacts.length, 4);
+    const names = contacts.map(c => c.username).sort();
+    assert.deepEqual(names, ['alice', 'bob', 'charlie', 'diana']);
+  });
+
+  // Step 2: requestContact with qualified name routes to correct relay
+  it('step 2: requestContact routes qualified name to correct community', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc4me-scoped2-'));
+    const dataDir = join(dir, 'data');
+
+    let homeRequested: string | null = null;
+    let companyRequested: string | null = null;
+
+    const homeMock = createMockRelayAPI();
+    homeMock.requestContact = async (name: string) => { homeRequested = name; return { ok: true, status: 200 }; };
+    const companyMock = createMockRelayAPI();
+    companyMock.requestContact = async (name: string) => { companyRequested = name; return { ok: true, status: 200 }; };
+
+    const net = new CC4MeNetwork({
+      username: 'bmo',
+      privateKey: kp.privateKeyDer,
+      endpoint: 'https://bmo.example.com/inbox',
+      communities: [
+        { name: 'home', primary: 'https://relay.bmobot.ai' },
+        { name: 'company', primary: 'https://relay.acme.com' },
+      ],
+      relayAPIs: {
+        'home:primary': homeMock,
+        'company:primary': companyMock,
+      },
+      deliverFn: async () => true,
+      dataDir,
+    } as CC4MeNetworkInternalOptions);
+    track(dir, net);
+    await net.start();
+
+    await net.requestContact('alice@relay.acme.com');
+    assert.equal(homeRequested, null); // NOT home
+    assert.equal(companyRequested, 'alice'); // Company relay got the request
+  });
+
+  // Steps 3-5: send with qualified name, check envelope sender is unqualified
+  it('steps 3-5: send routes to correct community, envelope uses unqualified names', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc4me-scoped3-'));
+    const dataDir = join(dir, 'data');
+
+    const companyContacts: RelayContact[] = [
+      { agent: 'alice', publicKey: kp2.publicKeyBase64, endpoint: 'https://alice.acme.com/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
+    ];
+
+    let capturedEndpoint: string | null = null;
+    let capturedEnvelope: any = null;
+
+    const net = new CC4MeNetwork({
+      username: 'bmo',
+      privateKey: kp.privateKeyDer,
+      endpoint: 'https://bmo.example.com/inbox',
+      communities: [
+        { name: 'home', primary: 'https://relay.bmobot.ai' },
+        { name: 'company', primary: 'https://relay.acme.com' },
+      ],
+      relayAPIs: {
+        'home:primary': createContactsMockRelayAPI([]),
+        'company:primary': createContactsMockRelayAPI(companyContacts),
+      },
+      deliverFn: async (endpoint, envelope) => {
+        capturedEndpoint = endpoint;
+        capturedEnvelope = envelope;
+        return true;
+      },
+      dataDir,
+    } as CC4MeNetworkInternalOptions);
+    track(dir, net);
+    await net.start();
+
+    // Step 4: Send to qualified name
+    const result = await net.send('alice@relay.acme.com', { text: 'hello' });
+    assert.equal(result.status, 'delivered');
+
+    // Delivery went to alice's endpoint from company cache
+    assert.equal(capturedEndpoint, 'https://alice.acme.com/inbox');
+
+    // Step 5: Envelope sender is unqualified
+    assert.ok(capturedEnvelope);
+    assert.equal(capturedEnvelope.sender, 'bmo'); // NOT bmo@relay.bmobot.ai
+    assert.equal(capturedEnvelope.recipient, 'alice'); // NOT alice@relay.acme.com
+  });
+
+  // Step 7: createGroup routes to first community (default)
+  it('step 7: createGroup uses first community by default', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc4me-scoped7-'));
+    const dataDir = join(dir, 'data');
+
+    let homeGroupCreated = false;
+    let companyGroupCreated = false;
+
+    const homeMock = createMockRelayAPI();
+    homeMock.createGroup = async () => { homeGroupCreated = true; return { ok: true, status: 200, data: { groupId: 'g1', name: 'team', owner: 'bmo', status: 'active', createdAt: '' } }; };
+    const companyMock = createMockRelayAPI();
+    companyMock.createGroup = async () => { companyGroupCreated = true; return { ok: true, status: 200, data: { groupId: 'g2', name: 'team', owner: 'bmo', status: 'active', createdAt: '' } }; };
+
+    const net = new CC4MeNetwork({
+      username: 'bmo',
+      privateKey: kp.privateKeyDer,
+      endpoint: 'https://bmo.example.com/inbox',
+      communities: [
+        { name: 'home', primary: 'https://relay.bmobot.ai' },
+        { name: 'company', primary: 'https://relay.acme.com' },
+      ],
+      relayAPIs: {
+        'home:primary': homeMock,
+        'company:primary': companyMock,
+      },
+      deliverFn: async () => true,
+      dataDir,
+    } as CC4MeNetworkInternalOptions);
+    track(dir, net);
+    await net.start();
+
+    await net.createGroup('team');
+    assert.equal(homeGroupCreated, true); // First community
+    assert.equal(companyGroupCreated, false);
+  });
+});

@@ -40,7 +40,7 @@ import {
   type CacheData,
   type CachedContact,
 } from './cache.js';
-import { CommunityRelayManager } from './community-manager.js';
+import { CommunityRelayManager, parseQualifiedName } from './community-manager.js';
 import { RetryQueue } from './retry.js';
 import {
   buildEnvelope,
@@ -322,8 +322,10 @@ export class CC4MeNetwork extends EventEmitter {
 
   // --- Contacts ---
 
-  async requestContact(username: string): Promise<ContactActionResult> {
-    const result = await this.relayAPI.requestContact(username);
+  async requestContact(nameOrQualified: string): Promise<ContactActionResult> {
+    const { username, community } = this.resolveContactCommunity(nameOrQualified);
+    const api = this.communityManager.getActiveApi(community);
+    const result = await api.requestContact(username);
     if (!result.ok) {
       throw new Error(result.error || `Failed to request contact: ${result.status}`);
     }
@@ -377,25 +379,46 @@ export class CC4MeNetwork extends EventEmitter {
   }
 
   async getContacts(): Promise<Contact[]> {
-    // Try relay first
-    try {
-      const result = await this.relayAPI.getContacts();
-      if (result.ok && result.data) {
-        this.updateContactsCache(result.data);
-        return result.data.map(toContact);
+    // Query all communities' relays in parallel, merge results
+    const allContacts: Contact[] = [];
+    const seen = new Set<string>();
+
+    const results = await Promise.allSettled(
+      this.communities.map(async (community) => {
+        try {
+          const api = this.communityManager.getActiveApi(community.name);
+          const result = await api.getContacts();
+          if (result.ok && result.data) {
+            this.updateContactsCache(result.data, community.name);
+            return { community: community.name, contacts: result.data };
+          }
+        } catch { /* relay unreachable */ }
+        return { community: community.name, contacts: null };
+      }),
+    );
+
+    // Collect relay results
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value.contacts) {
+        for (const c of r.value.contacts) {
+          if (seen.has(c.agent)) continue;
+          seen.add(c.agent);
+          allContacts.push(toContact(c));
+        }
       }
-    } catch {
-      // Relay unreachable — use cache
     }
 
-    // Fall back to cache — aggregate across all communities
-    const contacts: Contact[] = [];
-    const seen = new Set<string>();
-    for (const cache of this.caches.values()) {
+    // If we got contacts from relays, return them
+    if (allContacts.length > 0) return allContacts;
+
+    // Fall back to cache — aggregate across all communities (config order)
+    for (const community of this.communities) {
+      const cache = this.caches.get(community.name);
+      if (!cache) continue;
       for (const c of cache.contacts) {
         if (seen.has(c.username)) continue;
         seen.add(c.username);
-        contacts.push({
+        allContacts.push({
           username: c.username,
           publicKey: c.publicKey,
           endpoint: c.endpoint || '',
@@ -407,16 +430,51 @@ export class CC4MeNetwork extends EventEmitter {
         });
       }
     }
-    return contacts;
+    return allContacts;
   }
 
   /** Get a contact from the local cache (no relay call). Searches all community caches. */
   getCachedContact(username: string): CachedContact | undefined {
-    for (const cache of this.caches.values()) {
+    for (const community of this.communities) {
+      const cache = this.caches.get(community.name);
+      if (!cache) continue;
       const found = cache.contacts.find((c) => c.username === username);
       if (found) return found;
     }
     return undefined;
+  }
+
+  /**
+   * Resolve a possibly qualified name to {username, community}.
+   *
+   * Resolution rules:
+   * - Qualified (name@hostname): look up hostname via community manager. Throws if no match.
+   * - Unqualified: search community caches in config order. First cache with the contact wins.
+   * - Unqualified not found in any cache: defaults to first configured community.
+   */
+  resolveContactCommunity(name: string): { username: string; community: string } {
+    const parsed = parseQualifiedName(name);
+
+    if (parsed.hostname) {
+      const community = this.communityManager.resolveByHostname(parsed.hostname);
+      return { username: parsed.username, community };
+    }
+
+    // Unqualified: search caches in community config order
+    for (const community of this.communities) {
+      const cache = this.caches.get(community.name);
+      if (!cache) continue;
+      if (cache.contacts.some((c) => c.username === parsed.username)) {
+        if (community.name !== this.communities[0].name) {
+          // Debug: resolved to non-primary community
+          this.emit('debug', `Resolved '${parsed.username}' to community '${community.name}' (not primary)`);
+        }
+        return { username: parsed.username, community: community.name };
+      }
+    }
+
+    // Not found — default to first community
+    return { username: parsed.username, community: this.communities[0].name };
   }
 
   // --- Presence ---
@@ -426,15 +484,19 @@ export class CC4MeNetwork extends EventEmitter {
    * online/lastSeen in v3) rather than a separate presence endpoint.
    */
   async checkPresence(username: string): Promise<{ agent: string; online: boolean; endpoint?: string; lastSeen: string }> {
+    // Resolve which community this contact belongs to
+    const resolved = this.resolveContactCommunity(username);
+    const api = this.communityManager.getActiveApi(resolved.community);
+
     // Try relay contacts (which now include presence info)
     try {
-      const result = await this.relayAPI.getContacts();
+      const result = await api.getContacts();
       if (result.ok && result.data) {
-        this.updateContactsCache(result.data);
-        const contact = result.data.find(c => c.agent === username);
+        this.updateContactsCache(result.data, resolved.community);
+        const contact = result.data.find(c => c.agent === resolved.username);
         if (contact) {
           return {
-            agent: username,
+            agent: resolved.username,
             online: contact.online,
             endpoint: contact.endpoint || undefined,
             lastSeen: contact.lastSeen || '',
@@ -472,12 +534,16 @@ export class CC4MeNetwork extends EventEmitter {
    * 5. If delivery fails, queue for retry
    */
   async send(to: string, payload: Record<string, unknown>): Promise<SendResult> {
+    // Resolve qualified name to {username, community}
+    const resolved = this.resolveContactCommunity(to);
+    const recipientName = resolved.username;
+
     // Check: must be a contact
-    let contact = this.getCachedContact(to);
+    let contact = this.getCachedContact(recipientName);
     if (!contact) {
-      // Try refreshing from relay
-      await this.refreshContactsFromRelay();
-      contact = this.getCachedContact(to);
+      // Try refreshing from the resolved community's relay
+      await this.refreshContactsForCommunity(resolved.community);
+      contact = this.getCachedContact(recipientName);
       if (!contact) {
         return { status: 'failed', messageId: '', error: 'Not a contact' };
       }
@@ -487,10 +553,10 @@ export class CC4MeNetwork extends EventEmitter {
       return { status: 'failed', messageId: '', error: 'Contact has no public key' };
     }
 
-    // Build encrypted, signed envelope
+    // Build encrypted, signed envelope (always unqualified names in wire format)
     const envelope = buildEnvelope({
       sender: this.options.username,
-      recipient: to,
+      recipient: recipientName,
       payload,
       senderPrivateKey: this.privateKeyObj,
       recipientPublicKeyBase64: contact.publicKey,
@@ -499,14 +565,14 @@ export class CC4MeNetwork extends EventEmitter {
     // Initialize delivery report
     this.initReport(envelope.messageId);
 
-    // Check presence
+    // Check presence (using unqualified name — already resolved above)
     const startTime = Date.now();
-    const presence = await this.checkPresence(to);
+    const presence = await this.checkPresence(recipientName);
 
     if (!presence.online) {
       this.recordAttempt(envelope.messageId, false, '', undefined, 'Recipient offline', Date.now() - startTime);
       // Offline — queue for retry
-      const queued = this.retryQueue.enqueue(envelope.messageId, to, payload);
+      const queued = this.retryQueue.enqueue(envelope.messageId, recipientName, payload);
       if (queued) {
         return { status: 'queued', messageId: envelope.messageId };
       }
@@ -530,7 +596,7 @@ export class CC4MeNetwork extends EventEmitter {
     }
 
     // Delivery failed — queue for retry
-    const queued = this.retryQueue.enqueue(envelope.messageId, to, payload);
+    const queued = this.retryQueue.enqueue(envelope.messageId, recipientName, payload);
     if (queued) {
       return { status: 'queued', messageId: envelope.messageId };
     }

@@ -236,4 +236,44 @@ export class CommunityRelayManager extends EventEmitter {
   getCommunityState(communityName: string): CommunityState | undefined {
     return this.communities.get(communityName);
   }
+
+  /** Get the first configured community name. */
+  getFirstCommunityName(): string {
+    return this.communityOrder[0];
+  }
+
+  /**
+   * Resolve a qualified name to a community.
+   * Qualified (has hostname): look up hostname → community.
+   * Throws if hostname doesn't match any community.
+   */
+  resolveByHostname(hostname: string): string {
+    const community = this.hostnameMap.get(hostname);
+    if (!community) {
+      throw new Error(`No community found for hostname: '${hostname}'`);
+    }
+    return community;
+  }
+}
+
+/** Parsed result of a qualified or unqualified agent name. */
+export interface ParsedName {
+  username: string;
+  hostname: string | undefined;
+}
+
+/**
+ * Parse a qualified name (name@hostname) or unqualified name.
+ *
+ * Examples:
+ * - 'bmo@relay.bmobot.ai' → {username: 'bmo', hostname: 'relay.bmobot.ai'}
+ * - 'bmo' → {username: 'bmo', hostname: undefined}
+ * - 'agent@example.com' → {username: 'agent', hostname: 'example.com'}
+ */
+export function parseQualifiedName(name: string): ParsedName {
+  const atIdx = name.indexOf('@');
+  if (atIdx === -1 || atIdx === 0 || atIdx === name.length - 1) {
+    return { username: name, hostname: undefined };
+  }
+  return { username: name.substring(0, atIdx), hostname: name.substring(atIdx + 1) };
 }

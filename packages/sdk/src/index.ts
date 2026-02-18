@@ -39,8 +39,8 @@ export type {
 } from './types.js';
 
 // Community management
-export { CommunityRelayManager } from './community-manager.js';
-export type { CommunityState } from './community-manager.js';
+export { CommunityRelayManager, parseQualifiedName } from './community-manager.js';
+export type { CommunityState, ParsedName } from './community-manager.js';
 
 // Relay API (for custom implementations / testing)
 export { HttpRelayAPI } from './relay-api.js';
