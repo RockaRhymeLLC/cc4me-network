@@ -251,3 +251,112 @@ describe('t-101: CommunityRelayManager construction and API routing', () => {
     assert.equal(manager.getActiveApi('test'), customPrimary);
   });
 });
+
+// ─── t-102: Per-community independent heartbeat ──────────────────────────────
+
+/** Create a mock relay API that tracks heartbeat calls. */
+function createTrackingMockRelayAPI(): { api: IRelayAPI; heartbeatCalls: string[] } {
+  const heartbeatCalls: string[] = [];
+  const base = createMockRelayAPI();
+  const api: IRelayAPI = {
+    ...base,
+    heartbeat: async (endpoint: string) => {
+      heartbeatCalls.push(endpoint);
+      return { ok: true, status: 200 };
+    },
+  };
+  return { api, heartbeatCalls };
+}
+
+describe('t-102: Per-community independent heartbeat', () => {
+  const kp = genKeypair();
+  const endpoint = 'https://test.example.com/inbox';
+
+  const communities: CommunityConfig[] = [
+    { name: 'home', primary: 'https://relay.bmobot.ai', failover: 'https://backup.bmobot.ai' },
+    { name: 'company', primary: 'https://relay.acme.com' },
+  ];
+
+  it('Step 1: initial heartbeats sent to both communities\' active relays', async () => {
+    const homePrimary = createTrackingMockRelayAPI();
+    const homeFailover = createTrackingMockRelayAPI();
+    const companyPrimary = createTrackingMockRelayAPI();
+
+    const manager = new CommunityRelayManager(
+      communities, 'test-agent', kp.privateKey, 3,
+      { 'home:primary': homePrimary.api, 'home:failover': homeFailover.api, 'company:primary': companyPrimary.api },
+    );
+
+    await manager.sendAllHeartbeats(endpoint);
+
+    assert.equal(homePrimary.heartbeatCalls.length, 1);
+    assert.equal(homeFailover.heartbeatCalls.length, 0); // not active
+    assert.equal(companyPrimary.heartbeatCalls.length, 1);
+  });
+
+  it('Step 2: second heartbeat round hits both communities again', async () => {
+    const homePrimary = createTrackingMockRelayAPI();
+    const homeFailover = createTrackingMockRelayAPI();
+    const companyPrimary = createTrackingMockRelayAPI();
+
+    const manager = new CommunityRelayManager(
+      communities, 'test-agent', kp.privateKey, 3,
+      { 'home:primary': homePrimary.api, 'home:failover': homeFailover.api, 'company:primary': companyPrimary.api },
+    );
+
+    await manager.sendAllHeartbeats(endpoint);
+    await manager.sendAllHeartbeats(endpoint);
+
+    assert.equal(homePrimary.heartbeatCalls.length, 2);
+    assert.equal(companyPrimary.heartbeatCalls.length, 2);
+  });
+
+  it('Step 3: stopHeartbeats clears all timers', () => {
+    const homePrimary = createTrackingMockRelayAPI();
+    const companyPrimary = createTrackingMockRelayAPI();
+
+    const manager = new CommunityRelayManager(
+      communities, 'test-agent', kp.privateKey, 3,
+      { 'home:primary': homePrimary.api, 'company:primary': companyPrimary.api },
+    );
+
+    manager.startHeartbeats(endpoint, 60000);
+    // Timers are running
+    const homeState = manager.getCommunityState('home')!;
+    const companyState = manager.getCommunityState('company')!;
+    assert.ok(homeState.heartbeatTimer !== null);
+    assert.ok(companyState.heartbeatTimer !== null);
+
+    manager.stopHeartbeats();
+    assert.equal(homeState.heartbeatTimer, null);
+    assert.equal(companyState.heartbeatTimer, null);
+  });
+
+  it('Step 4-5: failover switches heartbeat to failover relay', async () => {
+    const homePrimary = createTrackingMockRelayAPI();
+    const homeFailover = createTrackingMockRelayAPI();
+    const companyPrimary = createTrackingMockRelayAPI();
+
+    const manager = new CommunityRelayManager(
+      communities, 'test-agent', kp.privateKey, 3,
+      { 'home:primary': homePrimary.api, 'home:failover': homeFailover.api, 'company:primary': companyPrimary.api },
+    );
+
+    // Simulate failover on 'home' (this will be done by failover logic in s-m04)
+    const homeState = manager.getCommunityState('home')!;
+    homeState.activeRelay = 'failover';
+
+    // Reset tracking
+    homePrimary.heartbeatCalls.length = 0;
+    homeFailover.heartbeatCalls.length = 0;
+    companyPrimary.heartbeatCalls.length = 0;
+
+    await manager.sendAllHeartbeats(endpoint);
+
+    // Home's heartbeat goes to failover, not primary
+    assert.equal(homePrimary.heartbeatCalls.length, 0);
+    assert.equal(homeFailover.heartbeatCalls.length, 1);
+    // Company unchanged
+    assert.equal(companyPrimary.heartbeatCalls.length, 1);
+  });
+});

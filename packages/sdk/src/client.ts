@@ -38,6 +38,7 @@ import {
   type CacheData,
   type CachedContact,
 } from './cache.js';
+import { CommunityRelayManager } from './community-manager.js';
 import { RetryQueue } from './retry.js';
 import {
   buildEnvelope,
@@ -137,8 +138,8 @@ export class CC4MeNetwork extends EventEmitter {
   readonly communities: CommunityConfig[];
   private started = false;
   private relayAPI: IRelayAPI;
+  private communityManager: CommunityRelayManager;
   private privateKeyObj: KeyObject;
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private cache: CacheData | null = null;
   private cachePath: string;
   private retryQueue: RetryQueue;
@@ -179,14 +180,22 @@ export class CC4MeNetwork extends EventEmitter {
       throw new Error(`Expected Ed25519 private key, got '${this.privateKeyObj.asymmetricKeyType}'`);
     }
 
-    // Use injected relay API or create HTTP client
-    // For single relay (default community), use the primary URL
-    const primaryUrl = this.communities[0].primary;
-    this.relayAPI = options.relayAPI || new HttpRelayAPI(
-      primaryUrl,
+    // Build CommunityRelayManager — handles per-community API instances and heartbeats
+    // When relayAPI is injected (single relay backward compat), use it as default:primary
+    let managerAPIs = options.relayAPIs;
+    if (!managerAPIs && options.relayAPI) {
+      managerAPIs = { 'default:primary': options.relayAPI };
+    }
+    this.communityManager = new CommunityRelayManager(
+      this.communities,
       this.options.username,
       this.privateKeyObj,
+      this.options.failoverThreshold,
+      managerAPIs,
     );
+
+    // relayAPI points to the first community's active API (backward compat for existing methods)
+    this.relayAPI = this.communityManager.getActiveApi(this.communities[0].name);
 
     // Delivery function: injectable for testing, defaults to HTTP POST
     this.deliverFn = options.deliverFn || httpDeliver;
@@ -260,15 +269,11 @@ export class CC4MeNetwork extends EventEmitter {
       await this.refreshContactsFromRelay();
     }
 
-    // Send initial heartbeat
-    await this.sendHeartbeat();
+    // Send initial heartbeats to all communities
+    await this.communityManager.sendAllHeartbeats(this.options.endpoint);
 
-    // Start heartbeat timer (skip if interval is 0 or negative)
-    if (this.options.heartbeatInterval > 0) {
-      this.heartbeatTimer = setInterval(() => {
-        this.sendHeartbeat().catch(() => { /* relay temporarily unreachable */ });
-      }, this.options.heartbeatInterval);
-    }
+    // Start periodic heartbeat timers (per-community)
+    this.communityManager.startHeartbeats(this.options.endpoint, this.options.heartbeatInterval);
 
     // Start retry queue processing
     this.retryQueue.start();
@@ -280,11 +285,8 @@ export class CC4MeNetwork extends EventEmitter {
   async stop(): Promise<void> {
     if (!this.started) return;
 
-    // Stop heartbeat
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
+    // Stop all community heartbeats
+    this.communityManager.stopHeartbeats();
 
     // Stop retry queue
     this.retryQueue.stop();
@@ -970,13 +972,9 @@ export class CC4MeNetwork extends EventEmitter {
 
   // --- Internal ---
 
-  /** Send a presence heartbeat to the relay. */
-  private async sendHeartbeat(): Promise<void> {
-    try {
-      await this.relayAPI.heartbeat(this.options.endpoint);
-    } catch {
-      // Relay unreachable — will retry on next interval
-    }
+  /** Get the community manager (for testing and advanced use). */
+  getCommunityManager(): CommunityRelayManager {
+    return this.communityManager;
   }
 
   /** Refresh contacts list from relay and update cache. */

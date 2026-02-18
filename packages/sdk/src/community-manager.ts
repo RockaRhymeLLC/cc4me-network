@@ -24,6 +24,7 @@ export interface CommunityState {
   activeRelay: 'primary' | 'failover';
   consecutiveFailures: number;
   firstSuccessSeen: boolean;
+  heartbeatTimer: ReturnType<typeof setInterval> | null;
 }
 
 export class CommunityRelayManager {
@@ -67,6 +68,7 @@ export class CommunityRelayManager {
         activeRelay: 'primary',
         consecutiveFailures: 0,
         firstSuccessSeen: false,
+        heartbeatTimer: null,
       });
 
       // Map hostnames for reverse lookup (getCommunityByHostname)
@@ -142,6 +144,46 @@ export class CommunityRelayManager {
         state.consecutiveFailures++;
       }
       throw err;
+    }
+  }
+
+  // --- Heartbeat management ---
+
+  /** Send a single heartbeat for one community (to its active relay). */
+  async sendHeartbeat(communityName: string, endpoint: string): Promise<void> {
+    try {
+      await this.callApi(communityName, api => api.heartbeat(endpoint));
+    } catch {
+      // Relay unreachable — tracked by callApi, silenced here
+    }
+  }
+
+  /** Send heartbeats to all communities (initial burst on start). */
+  async sendAllHeartbeats(endpoint: string): Promise<void> {
+    await Promise.allSettled(
+      this.communityOrder.map(name => this.sendHeartbeat(name, endpoint)),
+    );
+  }
+
+  /** Start periodic heartbeat timers for all communities. */
+  startHeartbeats(endpoint: string, interval: number): void {
+    for (const name of this.communityOrder) {
+      const state = this.communities.get(name)!;
+      if (interval > 0) {
+        state.heartbeatTimer = setInterval(() => {
+          this.sendHeartbeat(name, endpoint).catch(() => {});
+        }, interval);
+      }
+    }
+  }
+
+  /** Stop all heartbeat timers. */
+  stopHeartbeats(): void {
+    for (const state of this.communities.values()) {
+      if (state.heartbeatTimer) {
+        clearInterval(state.heartbeatTimer);
+        state.heartbeatTimer = null;
+      }
     }
   }
 
