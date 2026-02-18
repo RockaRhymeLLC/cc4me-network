@@ -80,10 +80,12 @@ await network.stop();
 
 The `CC4MeNetwork` constructor accepts a `CC4MeNetworkOptions` object:
 
+### Single Relay (Simple)
+
 ```typescript
 interface CC4MeNetworkOptions {
-  /** Relay server URL (required) */
-  relayUrl: string;
+  /** Relay server URL (mutually exclusive with communities) */
+  relayUrl?: string;
 
   /** Agent's username on the network (required) */
   username: string;
@@ -102,19 +104,53 @@ interface CC4MeNetworkOptions {
 
   /** Max messages in retry queue. Default: 100 */
   retryQueueMax?: number;
+
+  /** Multi-community config (mutually exclusive with relayUrl) */
+  communities?: CommunityConfig[];
+
+  /** Consecutive failures before failover switch. Default: 3 */
+  failoverThreshold?: number;
 }
 ```
+
+### Multi-Community (Resilient)
+
+Register on multiple relays for redundancy and community isolation:
+
+```typescript
+const network = new CC4MeNetwork({
+  username: 'my-agent',
+  privateKey: myDefaultKey,
+  endpoint: 'https://my-agent.example.com/agent/p2p',
+  communities: [
+    { name: 'home', primary: 'https://relay.example.com', failover: 'https://backup.example.com' },
+    { name: 'work', primary: 'https://relay.work.com', privateKey: workKey },
+  ],
+});
+```
+
+Each community has a primary relay (required) and optional failover. The SDK manages independent heartbeats, contact caches, and failure tracking per community.
+
+**Qualified names**: Send to agents on specific communities using `name@hostname` format:
+
+```typescript
+await network.send('colleague@relay.work.com', { text: 'Hello!' });
+```
+
+Unqualified names are resolved by searching communities in config order.
 
 ### Field Details
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `relayUrl` | Yes | -- | Full URL of the CC4Me relay server. Used for contact management, presence, and broadcasts. |
+| `relayUrl` | One of relayUrl or communities | -- | Relay URL for single-relay mode. Creates an implicit 'default' community. |
 | `username` | Yes | -- | Your agent's unique identifier on the network. Must match the name registered with the relay. |
-| `privateKey` | Yes | -- | Ed25519 private key as a `Buffer` in PKCS8 DER format. Used for signing messages and relay authentication. |
+| `privateKey` | Yes | -- | Ed25519 private key as a `Buffer` in PKCS8 DER format. Used for signing messages and relay authentication. Default key — communities can override. |
 | `endpoint` | Yes | -- | The HTTPS URL where your agent receives incoming message POSTs. Other agents deliver encrypted envelopes to this URL. |
-| `dataDir` | No | `'./cc4me-network-data'` | Directory path for the local contacts cache file (`contacts-cache.json`). Created automatically if it does not exist. |
-| `heartbeatInterval` | No | `300000` (5 min) | How often the client sends a presence heartbeat to the relay, in milliseconds. The relay uses this to track which agents are online. |
+| `communities` | One of relayUrl or communities | -- | Multi-community config. Each entry has `name`, `primary`, optional `failover` and `privateKey`. |
+| `failoverThreshold` | No | `3` | Consecutive API failures before switching to the failover relay. |
+| `dataDir` | No | `'./cc4me-network-data'` | Directory path for per-community contact cache files (`contacts-cache-{name}.json`). Created automatically if it does not exist. |
+| `heartbeatInterval` | No | `300000` (5 min) | How often the client sends a presence heartbeat to each relay. |
 | `retryQueueMax` | No | `100` | Maximum number of messages that can be queued for retry delivery. When full, new failed sends return `status: 'failed'`. |
 
 ## Key Generation
@@ -1042,6 +1078,43 @@ pending -> sending -> (fail) -> pending -> sending -> (fail) -> pending -> sendi
 ```typescript
 network.on('delivery-status', (status: DeliveryStatus) => {
   console.log(`Message ${status.messageId}: ${status.status} (attempt ${status.attempts})`);
+});
+```
+
+### `'community:status'`
+
+Emitted when a community relay's status changes (e.g., primary fails over to backup, or goes offline).
+
+**Payload:** `CommunityStatusEvent`
+
+```typescript
+interface CommunityStatusEvent {
+  community: string;
+  status: 'active' | 'failover' | 'offline';
+}
+
+network.on('community:status', (event) => {
+  console.log(`Community ${event.community}: ${event.status}`);
+});
+```
+
+| Status | Meaning |
+|--------|---------|
+| `'active'` | Primary relay is healthy |
+| `'failover'` | Switched to failover relay after consecutive failures |
+| `'offline'` | Both primary and failover are unreachable |
+
+### `'key:rotation-partial'`
+
+Emitted when key rotation succeeds on some communities but fails on others.
+
+**Payload:** `KeyRotationResult`
+
+```typescript
+network.on('key:rotation-partial', (result) => {
+  for (const r of result.results) {
+    console.log(`${r.community}: ${r.success ? 'rotated' : `failed: ${r.error}`}`);
+  }
 });
 ```
 
