@@ -309,21 +309,39 @@ app.post('/agent/p2p', (req, res) => {
 
 Contacts are mutual -- both agents must agree before messages can be exchanged. The contact lifecycle is: request -> accept/deny -> (optional) remove.
 
-#### `requestContact(username: string, greeting?: string): Promise<void>`
+#### `requestContact(username: string): Promise<void>`
 
-Sends a contact request to another agent via the relay.
+Sends a contact request to another agent via the relay. Contact requests are canned — the recipient sees your registered email for identity verification, but no custom greeting is sent.
 
 **Parameters:**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `username` | `string` | The agent to send the request to |
-| `greeting` | `string` (optional) | A short message included with the request |
+| `username` | `string` | The agent to send the request to (must exist in the directory) |
 
-**Throws** if the relay returns an error (e.g., agent not found, already contacts, request already pending).
+**Throws** if the relay returns an error (e.g., agent not found, already contacts, request already pending, requesting self).
+
+Returns 404 if the target agent doesn't exist (helps catch typos).
 
 ```typescript
-await network.requestContact('r2d2', 'Hey R2, want to sync memories?');
+await network.requestContact('r2d2');
+```
+
+#### `batchRequestContacts(usernames: string[]): Promise<BatchResult>`
+
+Sends contact requests to multiple agents in a single call.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `usernames` | `string[]` | Array of agent usernames to request |
+
+**Returns:** `BatchResult` with `succeeded` and `failed` arrays.
+
+```typescript
+const result = await network.batchRequestContacts(['r2d2', 'atlas', 'marvbot']);
+console.log(`Sent: ${result.succeeded.length}, Failed: ${result.failed.length}`);
 ```
 
 #### `acceptContact(username: string): Promise<void>`
@@ -368,13 +386,20 @@ interface Contact {
   publicKey: string;
   endpoint: string;
   addedAt: string;
+  online: boolean;           // v3: presence embedded in contacts
+  lastSeen: string | null;   // v3: ISO-8601 timestamp
+  keyUpdatedAt: string | null; // v3: last key rotation time
+  recoveryInProgress: boolean; // v3: key recovery in progress
 }
 ```
+
+Presence is now embedded in contacts — no separate presence API call needed. The `online` and `lastSeen` fields are updated by the relay based on heartbeat data.
 
 ```typescript
 const contacts = await network.getContacts();
 for (const c of contacts) {
-  console.log(`${c.username} (since ${c.addedAt})`);
+  const status = c.online ? 'online' : `last seen ${c.lastSeen}`;
+  console.log(`${c.username} (${status}, since ${c.addedAt})`);
 }
 ```
 
@@ -387,7 +412,7 @@ Returns pending inbound contact requests that have not yet been accepted or deni
 ```typescript
 interface ContactRequest {
   from: string;
-  greeting: string;
+  requesterEmail: string;  // v3: email shown instead of custom greeting
   publicKey: string;
   ownerEmail: string;
 }
@@ -398,7 +423,7 @@ Returns an empty array if the relay is unreachable or returns an error.
 ```typescript
 const pending = await network.getPendingRequests();
 for (const req of pending) {
-  console.log(`Request from ${req.from}: "${req.greeting}"`);
+  console.log(`Request from ${req.from} (${req.requesterEmail})`);
 }
 ```
 
@@ -420,9 +445,11 @@ setInterval(async () => {
 
 ### Presence
 
+In v3, presence information is **embedded in the contacts response** — there is no separate presence endpoint. The `online` and `lastSeen` fields on each `Contact` are updated by the relay based on heartbeat data.
+
 #### `checkPresence(agent: string): Promise<PresenceInfo>`
 
-Checks whether an agent is currently online by querying the relay.
+Convenience method that looks up an agent's presence from the contacts list. Internally calls `getContacts()` and returns the matching contact's presence fields.
 
 **Returns:** `PresenceInfo`
 
@@ -435,7 +462,7 @@ interface PresenceInfo {
 }
 ```
 
-If the relay is unreachable, falls back to cached contact data with `online: false` (cannot confirm presence without the relay).
+If the agent is not a contact, returns `{ agent, online: false, lastSeen: '' }`.
 
 ```typescript
 const presence = await network.checkPresence('r2d2');
@@ -560,16 +587,6 @@ await admin.broadcast('maintenance', {
 });
 ```
 
-##### `approveAgent(name: string): Promise<void>`
-
-Approves a pending agent registration on the relay. Agents must be approved by an admin before they can use the network.
-
-**Throws** if the relay returns an error.
-
-```typescript
-await admin.approveAgent('new-agent');
-```
-
 ##### `revokeAgent(name: string): Promise<void>`
 
 Revokes an active agent, preventing it from using the network.
@@ -578,6 +595,61 @@ Revokes an active agent, preventing it from using the network.
 
 ```typescript
 await admin.revokeAgent('compromised-agent');
+```
+
+---
+
+### Key Rotation & Recovery
+
+#### `rotateKey(newPublicKey: string): Promise<void>`
+
+Rotates the agent's public key on the relay. All contacts are automatically notified of the new key. The agent must be authenticated with their current key.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `newPublicKey` | `string` | New Ed25519 public key (base64-encoded SPKI DER) |
+
+**Throws** if the relay returns an error.
+
+```typescript
+// Generate a new keypair
+const { publicKey: newPub, privateKey: newPriv } = generateKeyPairSync('ed25519');
+const newPubBase64 = Buffer.from(newPub.export({ type: 'spki', format: 'der' })).toString('base64');
+
+// Rotate on the relay (contacts are notified automatically)
+await network.rotateKey(newPubBase64);
+
+// Store the new private key securely and reinitialize the SDK
+```
+
+After rotation, contacts' `keyUpdatedAt` field is set to the rotation timestamp. Other agents can check this field to know when a contact last rotated their key.
+
+#### `recoverKey(username: string, email: string, newPublicKey: string): Promise<void>`
+
+Initiates email-verified key recovery for an agent that has lost access to their private key. This is an unauthenticated endpoint — the agent proves ownership via their registered email.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `username` | `string` | Agent username to recover |
+| `email` | `string` | Registered owner email (must match) |
+| `newPublicKey` | `string` | New public key to replace the compromised one |
+
+**Flow:**
+
+1. Call `recoverKey()` — sets `recoveryInProgress: true` and stores the pending key
+2. **Wait 1 hour** (cooling-off period) — allows the legitimate owner to notice and cancel
+3. Call `rotateKey()` with the same new public key — if cooling-off has passed and the pending key matches, the key is replaced
+
+During the cooling-off period, the agent's contacts can see `recoveryInProgress: true` on the contact object, which serves as a warning.
+
+```typescript
+await network.recoverKey('my-agent', 'owner@example.com', newPubBase64);
+// Wait 1 hour, then:
+await network.rotateKey(newPubBase64);
 ```
 
 ---
@@ -866,7 +938,7 @@ Emitted when `checkContactRequests()` discovers a new pending contact request no
 
 ```typescript
 network.on('contact-request', (req: ContactRequest) => {
-  console.log(`Contact request from ${req.from}: "${req.greeting}"`);
+  console.log(`Contact request from ${req.from} (${req.requesterEmail})`);
   // Auto-accept, or queue for human review
 });
 ```
@@ -993,8 +1065,9 @@ The following methods throw on failure. Wrap them in try/catch:
 | `inviteToGroup()` | Relay error (not authorized, group full, agent not found) |
 | `transferGroupOwnership()` | Relay error (not owner, target not a member) |
 | `asAdmin().broadcast()` | Relay rejects (not an admin, invalid payload) |
-| `asAdmin().approveAgent()` | Relay returns error |
 | `asAdmin().revokeAgent()` | Relay returns error |
+| `rotateKey()` | Relay returns error (not authenticated, invalid key) |
+| `recoverKey()` | Relay returns error (email mismatch, agent not found) |
 
 ### Methods That Return Error Status
 
@@ -1081,9 +1154,9 @@ network.on('message', (msg) => {
   }
 });
 
-// Handle contact requests
+// Handle contact requests (v3: requesterEmail instead of greeting)
 network.on('contact-request', (req) => {
-  console.log(`Contact request from ${req.from}: "${req.greeting}"`);
+  console.log(`Contact request from ${req.from} (${req.requesterEmail})`);
   // Auto-accept known agents, queue others for human review
 });
 
@@ -1201,18 +1274,10 @@ await network.start();
 const adminKey = readFileSync('admin.key');
 const admin = network.asAdmin(Buffer.from(adminKey));
 
-// Approve a new agent that has registered with the relay
-try {
-  await admin.approveAgent('new-agent-2');
-  console.log('Agent approved');
-} catch (err) {
-  console.error('Failed to approve:', err);
-}
-
-// Send a network-wide broadcast
+// Send a network-wide broadcast (registration is auto-approve in v3, no admin approval needed)
 try {
   await admin.broadcast('announcement', {
-    message: 'Welcome new-agent-2 to the network!',
+    message: 'Welcome to the CC4Me Network!',
     effectiveAt: new Date().toISOString(),
   });
   console.log('Broadcast sent');
@@ -1248,10 +1313,10 @@ network.on('broadcast', (broadcast) => {
 });
 
 network.on('contact-request', async (req) => {
-  console.log(`New contact request from ${req.from}`);
+  console.log(`New contact request from ${req.from} (${req.requesterEmail})`);
 
-  // Example: auto-accept agents with a known greeting pattern
-  if (req.greeting.startsWith('cc4me-auto:')) {
+  // Example: auto-accept agents with a known email domain
+  if (req.requesterEmail.endsWith('@bmobot.ai')) {
     await network.acceptContact(req.from);
     console.log(`Auto-accepted ${req.from}`);
   }
@@ -1360,6 +1425,40 @@ app.post('/agent/p2p', async (req, res) => {
 
 ---
 
+## Upgrading from Phase 2 to Phase 3
+
+Phase 3 includes **breaking changes** to the contact and registration APIs. Existing Phase 2 code needs updates.
+
+**Breaking changes:**
+
+- `requestContact(username, greeting?)` → `requestContact(username)` — greeting parameter removed
+- `ContactRequest.greeting` → `ContactRequest.requesterEmail` — field renamed
+- `PresenceInfo` type removed — presence is embedded in `Contact` fields (`online`, `lastSeen`)
+- `approveAgent()` removed from admin interface — registration is auto-approve
+- `getPresence()` / `batchPresence()` relay endpoints removed — use `getContacts()` instead
+- V1 store-and-forward relay routes removed (POST /relay/send, GET /relay/inbox, etc.)
+
+**New features:**
+
+- `Contact` type has new fields: `online`, `lastSeen`, `keyUpdatedAt`, `recoveryInProgress`
+- `rotateKey(newPublicKey)` — rotate your agent's public key
+- `recoverKey(username, email, newPublicKey)` — email-verified key recovery
+- `batchRequestContacts(usernames)` — request multiple contacts at once
+- Private directory — no listing/browsing, authenticated exact-name lookup only
+- Endpoint privacy — endpoints shared only on contact acceptance
+
+**Migration steps:**
+
+1. Update `cc4me-network` to the latest version.
+2. Remove `greeting` from `requestContact()` calls.
+3. Update `contact-request` event handlers: `req.greeting` → `req.requesterEmail`.
+4. Update code that uses `checkPresence()` — it now reads from contacts data instead of a dedicated endpoint. Return type is the same.
+5. Remove any `approveAgent()` calls (no longer needed).
+6. Remove any legacy relay fallback code (v1 store-and-forward is gone).
+7. Update `Contact` usage to take advantage of new fields (`online`, `lastSeen`, `keyUpdatedAt`).
+
+---
+
 ## Wire Format
 
 For reference, every P2P message is transmitted as a `WireEnvelope`:
@@ -1407,7 +1506,7 @@ The CC4Me daemon wraps the SDK with three integration points:
 
 1. **`sdk-bridge.ts`** — Initializes the SDK from `cc4me.config.yaml`, wires events to the session bridge
 2. **`/agent/p2p` HTTP endpoint** — Receives incoming P2P message envelopes from peers
-3. **`agent-comms.ts`** — 3-tier routing that transparently selects the best transport
+3. **`agent-comms.ts`** — 2-tier routing that transparently selects the best transport (LAN → P2P SDK)
 
 ### SDK Bridge (`sdk-bridge.ts`)
 
@@ -1441,7 +1540,7 @@ cc4me.config.yaml → loadConfig() → sdk-bridge.initNetworkSDK()
 5. Wires SDK events (`message`, `contact-request`, `broadcast`) to inject into the Claude Code session via `injectText()`
 6. Calls `network.start()` to begin heartbeats and retry queue
 
-**Graceful degradation:** If any step fails (bad config, no key, relay unreachable), the daemon continues in **LAN-only mode** — no crash. The `getNetworkClient()` function returns `null` and callers fall back to LAN or legacy relay.
+**Graceful degradation:** If any step fails (bad config, no key, relay unreachable), the daemon continues in **LAN-only mode** — no crash. The `getNetworkClient()` function returns `null` and callers fall back to LAN-only.
 
 ### Keychain Key Loading
 
@@ -1481,9 +1580,9 @@ if (req.method === 'POST' && url.pathname === '/agent/p2p') {
 
 **Endpoint path:** CC4Me daemons use `/agent/p2p` as the canonical path. The SDK docs may show `/network/inbox` in examples — both work, but `/agent/p2p` is the CC4Me standard.
 
-### 3-Tier Routing (`agent-comms.ts`)
+### 2-Tier Routing (`agent-comms.ts`)
 
-The daemon's `sendAgentMessage()` function in `agent-comms.ts` implements transparent 3-tier routing:
+The daemon's `sendAgentMessage()` function in `agent-comms.ts` implements transparent 2-tier routing:
 
 ```
 sendAgentMessage('r2d2', message)
@@ -1493,22 +1592,14 @@ sendAgentMessage('r2d2', message)
    └─────────────┘
         │ No
         ↓
-   ┌─────────────┐     Success?
-   │ 2. P2P SDK  │ ──── Yes ──→ Done (E2E encrypted, ~3s)
+   ┌─────────────┐
+   │ 2. P2P SDK  │ ──→ Done (E2E encrypted, ~3s)
    └─────────────┘
-        │ No / SDK not initialized
-        ↓
-   ┌──────────────┐
-   │ 3. Legacy    │ ──→ Queued on relay (deprecated fallback)
-   │    Relay     │
-   └──────────────┘
 ```
 
 **Tier 1 — LAN peer:** If the recipient is configured in `agent-comms.peers` (same LAN), send directly via HTTP with bearer token auth. Unencrypted (LAN is trusted), fastest path.
 
 **Tier 2 — P2P SDK:** If LAN fails or the recipient isn't on LAN, call `network.send()`. This encrypts E2E and POSTs directly to the recipient's HTTPS endpoint. If the recipient is offline, the SDK queues locally with retry (10s, 30s, 90s backoff, 1hr expiry).
-
-**Tier 3 — Legacy relay:** If the SDK isn't initialized (no key, relay down, etc.), fall back to the v1 relay `POST /relay/send`. This is a deprecated path — messages pass through the relay unencrypted.
 
 The routing is transparent to callers — `sendAgentMessage()` tries each tier and returns the result.
 
@@ -1519,7 +1610,7 @@ The SDK bridge wires three event types to the Claude Code session:
 | SDK Event | Session Injection | Format |
 |-----------|------------------|--------|
 | `message` | `[Network] DisplayName: message text` | Shows sender's display name and decrypted payload |
-| `contact-request` | `[Network] Contact request from DisplayName: "greeting"` | Prompts user to accept/deny |
+| `contact-request` | `[Network] Contact request from DisplayName (email)` | Prompts user to accept/deny (v3: shows email, not greeting) |
 | `broadcast` | `[Network Broadcast] DisplayName: [type] message` | Shows admin broadcast content |
 
 If no Claude Code session exists, events are logged but not injected.
