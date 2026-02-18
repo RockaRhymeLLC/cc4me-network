@@ -23,6 +23,8 @@ export { CC4MeNetwork } from './client.js';
 export type { DeliverFn, CC4MeNetworkEvents, CC4MeNetworkInternalOptions, GroupInvitationEvent, GroupMemberChangeEvent } from './client.js';
 export type {
   CC4MeNetworkOptions,
+  CommunityConfig,
+  CommunityStatusEvent,
   SendResult,
   GroupSendResult,
   GroupMessage,

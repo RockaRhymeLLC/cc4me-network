@@ -2,12 +2,34 @@
  * SDK type definitions.
  */
 
+/**
+ * Community relay configuration — one entry per relay community.
+ */
+export interface CommunityConfig {
+  /** Human-readable community label (alphanumeric + hyphen only) */
+  name: string;
+  /** Primary relay URL */
+  primary: string;
+  /** Optional failover relay URL */
+  failover?: string;
+  /** Community-specific Ed25519 private key (PKCS8 DER). Defaults to top-level privateKey. */
+  privateKey?: Buffer;
+}
+
+/**
+ * Emitted on community relay status changes (active → failover → offline).
+ */
+export interface CommunityStatusEvent {
+  community: string;
+  status: 'active' | 'failover' | 'offline';
+}
+
 export interface CC4MeNetworkOptions {
-  /** Relay server URL */
-  relayUrl: string;
+  /** Relay server URL (single-relay mode, mutually exclusive with communities) */
+  relayUrl?: string;
   /** Agent's username on the network */
   username: string;
-  /** Ed25519 private key (PKCS8 DER format) */
+  /** Ed25519 private key (PKCS8 DER format) — default key, communities can override */
   privateKey: Buffer;
   /** Agent's reachable HTTPS endpoint for receiving messages */
   endpoint: string;
@@ -17,6 +39,10 @@ export interface CC4MeNetworkOptions {
   heartbeatInterval?: number;
   /** Max messages in retry queue (default: 100) */
   retryQueueMax?: number;
+  /** Multi-community config (mutually exclusive with relayUrl) */
+  communities?: CommunityConfig[];
+  /** Consecutive failures before failover (default: 3) */
+  failoverThreshold?: number;
 }
 
 export interface SendResult {

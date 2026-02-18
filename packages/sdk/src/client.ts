@@ -8,6 +8,7 @@ import { EventEmitter } from 'node:events';
 import { createPrivateKey, generateKeyPairSync, randomUUID, sign as cryptoSign, type KeyObject } from 'node:crypto';
 import type {
   CC4MeNetworkOptions,
+  CommunityConfig,
   SendResult,
   GroupSendResult,
   GroupMessage,
@@ -71,8 +72,10 @@ export interface CC4MeNetworkEvents {
 }
 
 export interface CC4MeNetworkInternalOptions extends CC4MeNetworkOptions {
-  /** Injectable relay API (for testing). If not provided, uses HttpRelayAPI. */
+  /** Injectable relay API for single-relay testing. If not provided, uses HttpRelayAPI. */
   relayAPI?: IRelayAPI;
+  /** Injectable relay APIs map for multi-community testing. Key: "communityName:primary" or "communityName:failover". */
+  relayAPIs?: Record<string, IRelayAPI>;
   /** Injectable delivery function (for testing). If not provided, uses HTTP POST. */
   deliverFn?: DeliverFn;
   /** Custom retry delays in ms (for testing). Default: [10000, 30000, 90000]. */
@@ -81,8 +84,57 @@ export interface CC4MeNetworkInternalOptions extends CC4MeNetworkOptions {
   retryProcessInterval?: number;
 }
 
+/** Regex for valid community names: alphanumeric + hyphen, 1-64 chars. */
+const COMMUNITY_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,63}$/;
+
+/**
+ * Validate and normalize SDK config. Returns resolved communities array.
+ * Throws on invalid config.
+ */
+function validateConfig(options: CC4MeNetworkOptions): CommunityConfig[] {
+  const { relayUrl, communities } = options;
+
+  // Mutual exclusion
+  if (relayUrl && communities) {
+    throw new Error('relayUrl and communities are mutually exclusive');
+  }
+  if (!relayUrl && !communities) {
+    throw new Error('Either relayUrl or communities must be provided');
+  }
+
+  // Single-relay → implicit 'default' community
+  if (relayUrl) {
+    return [{ name: 'default', primary: relayUrl }];
+  }
+
+  // Multi-community validation
+  if (!communities!.length) {
+    throw new Error('At least one community must be configured');
+  }
+  const seen = new Set<string>();
+  for (const c of communities!) {
+    if (!c.name) {
+      throw new Error('Community is missing required field: name');
+    }
+    if (!COMMUNITY_NAME_RE.test(c.name)) {
+      throw new Error(`Invalid community name '${c.name}': must be alphanumeric and hyphens only (1-64 chars, cannot start with hyphen)`);
+    }
+    if (seen.has(c.name)) {
+      throw new Error(`Duplicate community name: '${c.name}'`);
+    }
+    seen.add(c.name);
+    if (!c.primary) {
+      throw new Error(`Community '${c.name}' is missing required field: primary`);
+    }
+  }
+
+  return communities!;
+}
+
 export class CC4MeNetwork extends EventEmitter {
-  private options: Required<CC4MeNetworkOptions>;
+  private options: CC4MeNetworkOptions & { dataDir: string; heartbeatInterval: number; retryQueueMax: number; failoverThreshold: number };
+  /** Resolved communities (always present — single relayUrl creates 'default' community). */
+  readonly communities: CommunityConfig[];
   private started = false;
   private relayAPI: IRelayAPI;
   private privateKeyObj: KeyObject;
@@ -104,10 +156,15 @@ export class CC4MeNetwork extends EventEmitter {
 
   constructor(options: CC4MeNetworkInternalOptions) {
     super();
+
+    // Validate and normalize config
+    this.communities = validateConfig(options);
+
     this.options = {
       dataDir: './cc4me-network-data',
       heartbeatInterval: 5 * 60 * 1000,
       retryQueueMax: 100,
+      failoverThreshold: 3,
       ...options,
     };
     this.cachePath = getCachePath(this.options.dataDir);
@@ -123,8 +180,10 @@ export class CC4MeNetwork extends EventEmitter {
     }
 
     // Use injected relay API or create HTTP client
+    // For single relay (default community), use the primary URL
+    const primaryUrl = this.communities[0].primary;
     this.relayAPI = options.relayAPI || new HttpRelayAPI(
-      this.options.relayUrl,
+      primaryUrl,
       this.options.username,
       this.privateKeyObj,
     );

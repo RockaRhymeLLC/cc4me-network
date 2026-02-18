@@ -18,6 +18,8 @@ export interface CachedContact {
   addedAt: string;
   online: boolean;
   lastSeen: string | null;
+  /** Which community this contact belongs to (undefined for legacy caches) */
+  community?: string;
 }
 
 export interface CacheData {
