@@ -1,6 +1,6 @@
 {
   "name": "cc4me-network",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "P2P encrypted messaging SDK for AI agents",
   "main": "dist/index.js",
