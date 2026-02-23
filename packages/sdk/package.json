@@ -1,8 +1,8 @@
 {
-  "name": "cc4me-network",
+  "name": "kithkit-a2a-client",
   "version": "0.2.0",
   "type": "module",
-  "description": "CC4Me Community Agent — P2P encrypted messaging for AI agents",
+  "description": "KithKit A2A Agent — P2P encrypted messaging for AI agents",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -28,12 +28,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/RockaRhymeLLC/cc4me-network.git",
+    "url": "https://github.com/RockaRhymeLLC/kithkit-a2a-client.git",
     "directory": "packages/sdk"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "cc4me-relay": "github:RockaRhymeLLC/cc4me-relay",
+    "kithkit-a2a-relay": "github:RockaRhymeLLC/kithkit-a2a-relay",
     "tsx": "^4.21.0",
     "typescript": "^5.7.0"
   },

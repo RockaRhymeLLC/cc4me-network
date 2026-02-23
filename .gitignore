@@ -7,4 +7,4 @@ dist/
 .env
 *.db
 *.sqlite
-cc4me-network-data/
+a2a-network-data/

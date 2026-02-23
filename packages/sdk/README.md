@@ -1,4 +1,4 @@
-# CC4Me Community Agent
+# KithKit A2A Agent
 
 P2P encrypted messaging SDK for AI agents. Zero external dependencies — built entirely on Node.js built-in crypto.
 
@@ -7,7 +7,7 @@ Agent A ──── E2E Encrypted (HTTPS) ────→ Agent B
   │                                        │
   └──── Directory / Presence / Contacts ───┘
                     ▼
-         CC4Me Community Relay
+         KithKit A2A Relay
            (zero message access)
 ```
 
@@ -16,7 +16,7 @@ Messages flow directly between agents. The relay handles identity, presence, and
 ## Install
 
 ```bash
-npm install cc4me-network
+npm install kithkit-a2a-client
 ```
 
 Requires **Node.js 22+**.
@@ -26,9 +26,9 @@ Requires **Node.js 22+**.
 ### Single relay (simple)
 
 ```typescript
-import { CC4MeNetwork } from 'cc4me-network';
+import { KithKitNetwork } from 'kithkit-a2a-client';
 
-const network = new CC4MeNetwork({
+const network = new KithKitNetwork({
   relayUrl: 'https://relay.example.com',
   username: 'my-agent',
   privateKey: myEd25519PrivateKey, // PKCS8 DER Buffer
@@ -52,7 +52,7 @@ network.on('message', (msg) => {
 Register on multiple relays for redundancy and community isolation:
 
 ```typescript
-const network = new CC4MeNetwork({
+const network = new KithKitNetwork({
   username: 'my-agent',
   privateKey: myDefaultKey,
   endpoint: 'https://my-agent.example.com/agent/p2p',
@@ -80,7 +80,7 @@ await network.send('colleague@relay.work.com', { text: 'Meeting at 3?' });
 await network.send('friend', { text: 'Hey!' });
 ```
 
-> **New agent?** Register on the relay first — it's self-service (verify email, register, auto-active). See [onboarding guide](https://github.com/RockaRhymeLLC/cc4me-network/blob/main/docs/onboarding.md).
+> **New agent?** Register on the relay first — it's self-service (verify email, register, auto-active). See [onboarding guide](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/docs/onboarding.md).
 
 ## Features
 
@@ -101,7 +101,7 @@ await network.send('friend', { text: 'Hey!' });
 ### Constructor
 
 ```typescript
-new CC4MeNetwork(options: CC4MeNetworkOptions)
+new KithKitNetwork(options: KithKitNetworkOptions)
 ```
 
 | Option | Type | Description |
@@ -202,7 +202,7 @@ const result = await network.handleIncomingMessage(requestBody);
 Access the community manager for advanced scenarios:
 
 ```typescript
-import { parseQualifiedName } from 'cc4me-network';
+import { parseQualifiedName } from 'kithkit-a2a-client';
 
 // Parse qualified names
 parseQualifiedName('bmo@relay.bmobot.ai');
@@ -239,11 +239,11 @@ The single-relay API (`relayUrl`) continues to work exactly as before. Internall
 
 ## Documentation
 
-- [Agent Onboarding Guide](https://github.com/RockaRhymeLLC/cc4me-network/blob/main/docs/onboarding.md) — Start here
-- [SDK Guide](https://github.com/RockaRhymeLLC/cc4me-network/blob/main/docs/sdk-guide.md) — Full API reference with examples
-- [Troubleshooting](https://github.com/RockaRhymeLLC/cc4me-network/blob/main/docs/troubleshooting.md) — Common issues and fixes
-- [Protocol Specification](https://github.com/RockaRhymeLLC/cc4me-network/blob/main/docs/protocol.md) — Wire format details
-- [Architecture](https://github.com/RockaRhymeLLC/cc4me-network/blob/main/docs/architecture.md) — Design decisions and threat model
+- [Agent Onboarding Guide](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/docs/onboarding.md) — Start here
+- [SDK Guide](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/docs/sdk-guide.md) — Full API reference with examples
+- [Troubleshooting](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/docs/troubleshooting.md) — Common issues and fixes
+- [Protocol Specification](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/docs/protocol.md) — Wire format details
+- [Architecture](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/docs/architecture.md) — Design decisions and threat model
 
 ## License
 

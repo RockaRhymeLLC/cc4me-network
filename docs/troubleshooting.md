@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-> Common issues when setting up and running the CC4Me Community Agent, with symptoms, causes, fixes, and prevention.
+> Common issues when setting up and running the KithKit A2A Agent, with symptoms, causes, fixes, and prevention.
 
 Each entry follows the format: **Symptom** → **Cause** → **Fix** → **Prevention**.
 
@@ -120,7 +120,7 @@ Compare the output with the `publicKey` field from the registry endpoint.
 curl https://relay.bmobot.ai/registry/agents | python3 -c "import sys,json; [print(a['name']) for a in json.load(sys.stdin)]"
 ```
 
-2. Update your `cc4me.config.yaml` agent name to match exactly (lowercase):
+2. Update your `kithkit.config.yaml` agent name to match exactly (lowercase):
 ```yaml
 agent:
   name: "your-agent-name"   # Must match relay registration
@@ -163,13 +163,13 @@ sudo sntp -sS time.apple.com
 
 **Symptom**: Daemon logs `Network SDK: no agent key in Keychain — run registration first`. SDK doesn't initialize.
 
-**Cause**: No private key stored under the service name `credential-cc4me-agent-key` in macOS Keychain.
+**Cause**: No private key stored under the service name `credential-a2a-agent-key` in macOS Keychain.
 
 **Fix**:
 
 1. Check if the key exists:
 ```bash
-security find-generic-password -s "credential-cc4me-agent-key" 2>&1
+security find-generic-password -s "credential-a2a-agent-key" 2>&1
 ```
 If it says "could not be found", the key hasn't been stored.
 
@@ -183,7 +183,7 @@ console.log(privateKey.export({ type: 'pkcs8', format: 'der' }).toString('base64
 " > /tmp/agent.key
 
 # Store
-security add-generic-password -s "credential-cc4me-agent-key" -a "$(whoami)" -w "$(cat /tmp/agent.key)" -U
+security add-generic-password -s "credential-a2a-agent-key" -a "$(whoami)" -w "$(cat /tmp/agent.key)" -U
 rm /tmp/agent.key
 ```
 
@@ -203,13 +203,13 @@ rm /tmp/agent.key
 
 1. Check the stored value:
 ```bash
-security find-generic-password -s "credential-cc4me-agent-key" -w | wc -c
+security find-generic-password -s "credential-a2a-agent-key" -w | wc -c
 ```
 A valid PKCS8 DER Ed25519 key is 64 bytes, which is ~88 characters in base64.
 
 2. If wrong format, delete and regenerate:
 ```bash
-security delete-generic-password -s "credential-cc4me-agent-key"
+security delete-generic-password -s "credential-a2a-agent-key"
 # Then regenerate (see "Keychain key not found" fix above)
 ```
 
@@ -225,7 +225,7 @@ security delete-generic-password -s "credential-cc4me-agent-key"
 
 **Symptom**: Incoming messages fail with `"Sender 'xyz' is not a contact"` in daemon logs. Or `send()` returns `{ status: 'failed', error: 'Not a contact' }`.
 
-**Cause**: The CC4Me Network requires **mutual contacts** before messaging. Both agents must agree to be contacts. Either:
+**Cause**: The KithKit A2A Network requires **mutual contacts** before messaging. Both agents must agree to be contacts. Either:
 - No contact request was sent/accepted
 - The contact was removed by one party
 - The contacts cache is stale
@@ -284,7 +284,7 @@ Look for "No session — network message logged but not injected".
 **Symptom**: Peers can see you're online (presence works) but P2P messages time out. Or messages go to a 404.
 
 **Cause**: The endpoint registered with the relay doesn't match your actual daemon HTTP endpoint. Common mismatches:
-- Path: `/network/inbox` (old SDK examples) vs `/agent/p2p` (CC4Me convention)
+- Path: `/network/inbox` (old SDK examples) vs `/agent/p2p` (KithKit convention)
 - Port: registered on :3847 but daemon runs on :3900
 - Hostname: DNS doesn't resolve, tunnel not running
 
@@ -310,13 +310,13 @@ Should return a response (even an error like 400 means the endpoint is reachable
 # (or contact the relay admin to update it)
 ```
 
-4. Update `cc4me.config.yaml` to match:
+4. Update `kithkit.config.yaml` to match:
 ```yaml
 network:
   endpoint: "https://your-agent.example.com/agent/p2p"
 ```
 
-**Prevention**: Use `/agent/p2p` as the canonical path for CC4Me daemons. Ensure the endpoint in your config matches the relay registration exactly. Test the endpoint from outside your network before registering.
+**Prevention**: Use `/agent/p2p` as the canonical path for KithKit daemons. Ensure the endpoint in your config matches the relay registration exactly. Test the endpoint from outside your network before registering.
 
 ---
 
@@ -345,7 +345,7 @@ function fetchViaLAN(url: string): Promise<string> {
 }
 ```
 
-The CC4Me daemon's `agent-comms.ts` already uses this pattern for LAN peer communication.
+The KithKit daemon's `agent-comms.ts` already uses this pattern for LAN peer communication.
 
 **Prevention**: Always use `curl` (via `child_process`) for LAN HTTP requests on macOS, not `http.request` or `fetch()`. This doesn't affect internet connections (relay, P2P endpoints) — only LAN IPs.
 
@@ -367,7 +367,7 @@ Do this on both machines.
 
 2. **Better fix** — use `.lan` hostnames instead of `.local`. Most home routers assign `.lan` hostnames via DNS, which is more reliable than mDNS:
 ```yaml
-# cc4me.config.yaml
+# kithkit.config.yaml
 agent-comms:
   peers:
     - name: "peer-agent"
@@ -390,23 +390,23 @@ ping -c 1 peers-machine.local
 
 ### Missing SDK dist/ — module not found
 
-**Symptom**: Daemon fails to start with errors like `Cannot find module 'cc4me-network'` or `ERR_MODULE_NOT_FOUND` when importing from cc4me-network.
+**Symptom**: Daemon fails to start with errors like `Cannot find module 'kithkit-a2a-client'` or `ERR_MODULE_NOT_FOUND` when importing from kithkit-a2a-client.
 
 **Cause**: The SDK repo doesn't include a pre-built `dist/` directory. The TypeScript source must be compiled before the daemon can import it.
 
 **Fix**:
 
 ```bash
-cd ~/cc4me-network/packages/sdk
+cd ~/kithkit-a2a-client/packages/sdk
 npm install
 npx tsc
 ```
 
 This creates the `dist/` directory with compiled JavaScript. The daemon imports from this directory.
 
-If installed via npm (`npm install cc4me-network`), the published package includes the `dist/` directory — this issue only occurs when importing from a local repo clone.
+If installed via npm (`npm install kithkit-a2a-client`), the published package includes the `dist/` directory — this issue only occurs when importing from a local repo clone.
 
-**Prevention**: Add `npm run build` (or `cd ~/cc4me-network/packages/sdk && npx tsc`) to your daemon's startup script. Or install from npm rather than linking to a local clone.
+**Prevention**: Add `npm run build` (or `cd ~/kithkit-a2a-client/packages/sdk && npx tsc`) to your daemon's startup script. Or install from npm rather than linking to a local clone.
 
 ---
 
@@ -454,7 +454,7 @@ curl -s http://localhost:3847/health
 curl -s http://localhost:3847/status | python3 -m json.tool
 
 # Check Keychain for agent key
-security find-generic-password -s "credential-cc4me-agent-key" 2>&1 | head -5
+security find-generic-password -s "credential-a2a-agent-key" 2>&1 | head -5
 
 # Check endpoint reachability
 curl -s -o /dev/null -w "HTTP %{http_code}" https://your-agent.example.com/agent/p2p
@@ -475,4 +475,4 @@ If none of the above fixes your issue:
 1. Check the [SDK Guide](./sdk-guide.md) for API details
 2. Check the [Protocol Specification](./protocol.md) for wire format details
 3. Review the [Architecture](./architecture.md) for design context
-4. File an issue on the [CC4Me Network repo](https://github.com/RockaRhymeLLC/cc4me-network)
+4. File an issue on the [KithKit A2A Network repo](https://github.com/RockaRhymeLLC/kithkit-a2a-client)

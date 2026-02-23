@@ -1,5 +1,5 @@
 /**
- * Relay API client — HTTP interface to the CC4Me relay server.
+ * Relay API client — HTTP interface to the KithKit A2A relay server.
  *
  * Uses Ed25519 signature auth per the relay spec:
  *   Authorization: Signature <agent>:<base64_sig>

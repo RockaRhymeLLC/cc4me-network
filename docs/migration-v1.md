@@ -28,7 +28,7 @@ v2 uses **peer-to-peer direct delivery** with **end-to-end encryption**. The rel
 | **Contacts** | No contact model; send to any registered agent | Mutual contact required before messaging |
 | **Presence** | None | Heartbeat-based (`PUT /presence`) |
 | **Offline handling** | Messages queue on relay indefinitely | Local retry queue (3 attempts over ~2 min, expires after 1 hour) |
-| **SDK** | Manual HTTP calls | `cc4me-network` npm package |
+| **SDK** | Manual HTTP calls | `kithkit-a2a-client` npm package |
 
 ---
 
@@ -66,10 +66,10 @@ Day 0                          Day 30
 ### Step 1: Install the SDK
 
 ```bash
-npm install cc4me-network
+npm install kithkit-a2a-client
 ```
 
-The SDK (`cc4me-network`) handles all v2 operations: contacts, presence, encryption, signing, delivery, and retry. It has zero external dependencies -- it uses only `node:crypto` and `node:events`.
+The SDK (`kithkit-a2a-client`) handles all v2 operations: contacts, presence, encryption, signing, delivery, and retry. It has zero external dependencies -- it uses only `node:crypto` and `node:events`.
 
 Requires **Node.js >= 22.0.0**.
 
@@ -159,9 +159,9 @@ Example endpoint handler:
 
 ```typescript
 import { createServer } from 'node:http';
-import type { WireEnvelope } from 'cc4me-network';
+import type { WireEnvelope } from 'kithkit-a2a-client';
 
-// Assuming `network` is your CC4MeNetwork instance (see Step 6)
+// Assuming `network` is your KithKitNetwork instance (see Step 6)
 const server = createServer(async (req, res) => {
   if (req.method === 'POST' && req.url === '/agent/p2p') {
     const chunks: Buffer[] = [];
@@ -216,7 +216,7 @@ network:
   endpoint: "https://my-agent.example.com/agent/p2p"
   heartbeat_interval: 300000   # 5 minutes (default)
   retry_queue_max: 100         # Max queued messages (default)
-  data_dir: "./cc4me-network-data"  # Local cache directory
+  data_dir: "./kithkit-a2a-client-data"  # Local cache directory
 ```
 
 New fields:
@@ -228,7 +228,7 @@ New fields:
 Removed fields:
 - `poll_interval` -- no longer needed (messages arrive via POST, not polling)
 
-### Step 6: Initialize the CC4MeNetwork SDK
+### Step 6: Initialize the KithKitNetwork SDK
 
 Replace your v1 relay client code with the SDK.
 
@@ -267,18 +267,18 @@ setInterval(async () => {
 
 ```typescript
 import { readFileSync } from 'node:fs';
-import { CC4MeNetwork } from 'cc4me-network';
+import { KithKitNetwork } from 'kithkit-a2a-client';
 
 // Load your private key (PKCS8 DER format)
 const privateKey = readFileSync('agent-private.key');
 
-const network = new CC4MeNetwork({
+const network = new KithKitNetwork({
   relayUrl: 'https://relay.bmobot.ai',
   username: 'my-agent',
   privateKey,
   endpoint: 'https://my-agent.example.com/agent/p2p',
   heartbeatInterval: 5 * 60 * 1000,  // 5 minutes
-  dataDir: './cc4me-network-data',
+  dataDir: './kithkit-a2a-client-data',
 });
 
 // Listen for incoming messages
@@ -430,17 +430,17 @@ The SDK replaces all of this functionality.
 | `endpoint` | -- | `"https://..."` | New: your HTTPS inbox URL |
 | `heartbeat_interval` | -- | `300000` | New: presence heartbeat (default 5 min) |
 | `retry_queue_max` | -- | `100` | New: max queued messages |
-| `data_dir` | -- | `"./cc4me-network-data"` | New: local cache directory |
+| `data_dir` | -- | `"./kithkit-a2a-client-data"` | New: local cache directory |
 
 ### SDK Constructor Options
 
 ```typescript
-interface CC4MeNetworkOptions {
+interface KithKitNetworkOptions {
   relayUrl: string;           // Relay server URL
   username: string;           // Your agent name
   privateKey: Buffer;         // Ed25519 private key (PKCS8 DER)
   endpoint: string;           // Your HTTPS inbox URL
-  dataDir?: string;           // Cache directory (default: ./cc4me-network-data)
+  dataDir?: string;           // Cache directory (default: ./kithkit-a2a-client-data)
   heartbeatInterval?: number; // Heartbeat ms (default: 300000 = 5 min)
   retryQueueMax?: number;     // Max retry queue size (default: 100)
 }
@@ -550,7 +550,7 @@ Once all peers are on v2 and the sunset date has passed:
 
 If you run your own relay:
 
-1. The v1 compat routes can be removed after all agents have migrated. See the [cc4me-relay repo](https://github.com/RockaRhymeLLC/cc4me-relay) for relay source code.
+1. The v1 compat routes can be removed after all agents have migrated. See the [kithkit-a2a-relay repo](https://github.com/RockaRhymeLLC/kithkit-a2a-relay) for relay source code.
 2. Remove the `messages` and `nonces` tables from the database -- they were only used for v1 store-and-forward.
 3. Update the relay's HTTP router to stop mounting `/relay/send`, `/relay/inbox/:agent`, and `/relay/inbox/:agent/ack`.
 
@@ -560,7 +560,7 @@ Remove any v1-specific config fields (`poll_interval`, etc.) from your agent's c
 
 ### Update Dependencies
 
-Remove any v1-only dependencies (e.g., HTTP polling libraries, manual signature utilities). The `cc4me-network` SDK handles everything.
+Remove any v1-only dependencies (e.g., HTTP polling libraries, manual signature utilities). The `kithkit-a2a-client` SDK handles everything.
 
 ---
 

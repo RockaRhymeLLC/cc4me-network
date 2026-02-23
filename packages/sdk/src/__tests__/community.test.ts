@@ -18,7 +18,7 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CC4MeNetwork, type CC4MeNetworkInternalOptions } from '../client.js';
+import { A2ANetwork, type A2ANetworkInternalOptions } from '../client.js';
 import { CommunityRelayManager } from '../community-manager.js';
 import type { CommunityConfig } from '../types.js';
 import type { IRelayAPI, RelayResponse, RelayContact, RelayPendingRequest, RelayBroadcast, RelayGroup, RelayGroupMember, RelayGroupInvitation, RelayGroupChange } from '../relay-api.js';
@@ -65,7 +65,7 @@ function createMockRelayAPI(): IRelayAPI {
   };
 }
 
-function baseOpts(kp: ReturnType<typeof genKeypair>): Omit<CC4MeNetworkInternalOptions, 'relayUrl' | 'communities'> {
+function baseOpts(kp: ReturnType<typeof genKeypair>): Omit<A2ANetworkInternalOptions, 'relayUrl' | 'communities'> {
   return {
     username: 'test-agent',
     privateKey: kp.privateKeyDer,
@@ -81,23 +81,23 @@ describe('t-100: CommunityConfig type validation and mutual exclusion', () => {
   const kp = genKeypair();
 
   it('Step 1: valid relayUrl config creates default community', () => {
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       ...baseOpts(kp),
       relayUrl: 'https://relay.bmobot.ai',
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     assert.equal(net.communities.length, 1);
     assert.equal(net.communities[0].name, 'default');
     assert.equal(net.communities[0].primary, 'https://relay.bmobot.ai');
   });
 
   it('Step 2: valid communities array (2 communities, one with failover)', () => {
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       ...baseOpts(kp),
       communities: [
         { name: 'home', primary: 'https://relay.bmobot.ai', failover: 'https://backup.bmobot.ai' },
         { name: 'company', primary: 'https://relay.acme.com' },
       ],
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     assert.equal(net.communities.length, 2);
     assert.equal(net.communities[0].name, 'home');
     assert.equal(net.communities[1].name, 'company');
@@ -105,46 +105,46 @@ describe('t-100: CommunityConfig type validation and mutual exclusion', () => {
 
   it('Step 3: BOTH relayUrl and communities throws', () => {
     assert.throws(() => {
-      new CC4MeNetwork({
+      new A2ANetwork({
         ...baseOpts(kp),
         relayUrl: 'https://relay.bmobot.ai',
         communities: [{ name: 'home', primary: 'https://relay.bmobot.ai' }],
-      } as CC4MeNetworkInternalOptions);
+      } as A2ANetworkInternalOptions);
     }, /relayUrl and communities are mutually exclusive/);
   });
 
   it('Step 4: empty communities array throws', () => {
     assert.throws(() => {
-      new CC4MeNetwork({
+      new A2ANetwork({
         ...baseOpts(kp),
         communities: [],
-      } as CC4MeNetworkInternalOptions);
+      } as A2ANetworkInternalOptions);
     }, /At least one community must be configured/);
   });
 
   it('Step 5: community missing name throws', () => {
     assert.throws(() => {
-      new CC4MeNetwork({
+      new A2ANetwork({
         ...baseOpts(kp),
         communities: [{ name: '', primary: 'https://relay.bmobot.ai' }],
-      } as CC4MeNetworkInternalOptions);
+      } as A2ANetworkInternalOptions);
     }, /missing required field: name|Invalid community name/);
   });
 
   it('Step 6: community missing primary URL throws', () => {
     assert.throws(() => {
-      new CC4MeNetwork({
+      new A2ANetwork({
         ...baseOpts(kp),
         communities: [{ name: 'home', primary: '' }],
-      } as CC4MeNetworkInternalOptions);
+      } as A2ANetworkInternalOptions);
     }, /missing required field: primary/);
   });
 
   it('Step 7: neither relayUrl nor communities throws', () => {
     assert.throws(() => {
-      new CC4MeNetwork({
+      new A2ANetwork({
         ...baseOpts(kp),
-      } as CC4MeNetworkInternalOptions);
+      } as A2ANetworkInternalOptions);
     }, /Either relayUrl or communities must be provided/);
   });
 
@@ -152,10 +152,10 @@ describe('t-100: CommunityConfig type validation and mutual exclusion', () => {
     const badNames = ['../etc', 'my/community', 'a.b.c', 'has spaces', '-starts-with-hyphen'];
     for (const name of badNames) {
       assert.throws(() => {
-        new CC4MeNetwork({
+        new A2ANetwork({
           ...baseOpts(kp),
           communities: [{ name, primary: 'https://relay.example.com' }],
-        } as CC4MeNetworkInternalOptions);
+        } as A2ANetworkInternalOptions);
       }, /Invalid community name|must be alphanumeric/, `Should reject name: '${name}'`);
     }
   });
@@ -664,8 +664,8 @@ describe('t-104: Community fully offline (both relays down)', () => {
     assert.equal(manager.getFailureCount('company'), 0);
   });
 
-  // Steps 4-5: Cached contacts still available while offline (tests at CC4MeNetwork level)
-  // These require the full CC4MeNetwork client — tested via t-105 and existing client tests
+  // Steps 4-5: Cached contacts still available while offline (tests at A2ANetwork level)
+  // These require the full A2ANetwork client — tested via t-105 and existing client tests
 
   // Step 6: No failover configured → goes directly to offline
   it('step 6: no failover configured → offline directly', async () => {
@@ -707,7 +707,7 @@ function createContactsMockRelayAPI(contacts: RelayContact[]): IRelayAPI {
 
 describe('t-105: Per-community contact cache files and migration', () => {
   const kp = genKeypair();
-  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+  let cleanups: Array<{ dir: string; networks: A2ANetwork[] }> = [];
 
   afterEach(async () => {
     for (const { networks, dir } of cleanups) {
@@ -719,13 +719,13 @@ describe('t-105: Per-community contact cache files and migration', () => {
     cleanups = [];
   });
 
-  function track(dir: string, ...networks: CC4MeNetwork[]) {
+  function track(dir: string, ...networks: A2ANetwork[]) {
     cleanups.push({ dir, networks });
   }
 
   // Steps 1-3: Two communities produce two separate cache files
   it('steps 1-3: per-community cache files with correct contacts', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-cache-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-cache-'));
     const dataDir = join(dir, 'data');
 
     const homeContacts: RelayContact[] = [
@@ -736,7 +736,7 @@ describe('t-105: Per-community contact cache files and migration', () => {
       { agent: 'charlie', publicKey: 'pk-charlie', endpoint: 'https://charlie.acme.com/inbox', since: '2025-03-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
     ];
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'test-agent',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://test.example.com/inbox',
@@ -750,7 +750,7 @@ describe('t-105: Per-community contact cache files and migration', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
 
     await net.start();
@@ -780,7 +780,7 @@ describe('t-105: Per-community contact cache files and migration', () => {
 
   // Steps 4-5: Migration from old single-file cache
   it('steps 4-5: old contacts-cache.json migrated to first community', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-migrate-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-migrate-'));
     const dataDir = join(dir, 'data');
     const { mkdirSync } = await import('node:fs');
     mkdirSync(dataDir, { recursive: true });
@@ -796,7 +796,7 @@ describe('t-105: Per-community contact cache files and migration', () => {
     };
     writeFileSync(oldCachePath, JSON.stringify(oldCache, null, 2));
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'test-agent',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://test.example.com/inbox',
@@ -810,7 +810,7 @@ describe('t-105: Per-community contact cache files and migration', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
 
     await net.start();
@@ -832,7 +832,7 @@ describe('t-105: Per-community contact cache files and migration', () => {
 
   // Step 6: No re-migration if community cache already exists
   it('step 6: no re-migration when community cache already exists', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-nomigrate-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-nomigrate-'));
     const dataDir = join(dir, 'data');
     const { mkdirSync } = await import('node:fs');
     mkdirSync(dataDir, { recursive: true });
@@ -851,7 +851,7 @@ describe('t-105: Per-community contact cache files and migration', () => {
     const oldCachePath = join(dataDir, 'contacts-cache.json');
     writeFileSync(oldCachePath, JSON.stringify({ contacts: [{ username: 'old-contact' }], lastUpdated: '' }));
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'test-agent',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://test.example.com/inbox',
@@ -863,7 +863,7 @@ describe('t-105: Per-community contact cache files and migration', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
 
     await net.start();
@@ -880,7 +880,7 @@ describe('t-105: Per-community contact cache files and migration', () => {
 
   // Step 7: Corrupt old cache handled gracefully
   it('step 7: corrupt old cache creates fresh community cache', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-corrupt-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-corrupt-'));
     const dataDir = join(dir, 'data');
     const { mkdirSync } = await import('node:fs');
     mkdirSync(dataDir, { recursive: true });
@@ -889,7 +889,7 @@ describe('t-105: Per-community contact cache files and migration', () => {
     const oldCachePath = join(dataDir, 'contacts-cache.json');
     writeFileSync(oldCachePath, '{corrupt json!!!');
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'test-agent',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://test.example.com/inbox',
@@ -901,7 +901,7 @@ describe('t-105: Per-community contact cache files and migration', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
 
     // Should not crash
@@ -919,7 +919,7 @@ describe('t-105: Per-community contact cache files and migration', () => {
 describe('t-109: Backward compatibility with single relayUrl', () => {
   const kp = genKeypair();
   const kp2 = genKeypair();
-  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+  let cleanups: Array<{ dir: string; networks: A2ANetwork[] }> = [];
 
   afterEach(async () => {
     for (const { networks, dir } of cleanups) {
@@ -931,20 +931,20 @@ describe('t-109: Backward compatibility with single relayUrl', () => {
     cleanups = [];
   });
 
-  function track(dir: string, ...networks: CC4MeNetwork[]) {
+  function track(dir: string, ...networks: A2ANetwork[]) {
     cleanups.push({ dir, networks });
   }
 
   // Step 1: relayUrl creates 'default' community (already tested in t-100, but verify cache behavior)
   it('step 1: relayUrl creates default community with working cache', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-compat-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-compat-'));
     const dataDir = join(dir, 'data');
 
     const contacts: RelayContact[] = [
       { agent: 'r2', publicKey: kp2.publicKeyBase64, endpoint: 'https://r2.example.com/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
     ];
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -952,7 +952,7 @@ describe('t-109: Backward compatibility with single relayUrl', () => {
       relayAPI: createContactsMockRelayAPI(contacts),
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
 
     await net.start();
@@ -962,14 +962,14 @@ describe('t-109: Backward compatibility with single relayUrl', () => {
 
   // Step 2: getContacts returns contacts with community: 'default'
   it('step 2: contacts have community: default', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-compat2-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-compat2-'));
     const dataDir = join(dir, 'data');
 
     const contacts: RelayContact[] = [
       { agent: 'r2', publicKey: kp2.publicKeyBase64, endpoint: 'https://r2.example.com/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
     ];
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -977,7 +977,7 @@ describe('t-109: Backward compatibility with single relayUrl', () => {
       relayAPI: createContactsMockRelayAPI(contacts),
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
 
     await net.start();
@@ -990,7 +990,7 @@ describe('t-109: Backward compatibility with single relayUrl', () => {
 
   // Step 3: send works via single relay (already tested extensively in client.test.ts, quick sanity)
   it('step 3: send works via single relay', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-compat3-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-compat3-'));
     const dataDir = join(dir, 'data');
 
     let delivered = false;
@@ -998,7 +998,7 @@ describe('t-109: Backward compatibility with single relayUrl', () => {
       { agent: 'r2', publicKey: kp2.publicKeyBase64, endpoint: 'https://r2.example.com/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
     ];
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -1006,7 +1006,7 @@ describe('t-109: Backward compatibility with single relayUrl', () => {
       relayAPI: createContactsMockRelayAPI(contacts),
       deliverFn: async () => { delivered = true; return true; },
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
 
     await net.start();
@@ -1017,14 +1017,14 @@ describe('t-109: Backward compatibility with single relayUrl', () => {
 
   // Step 4: cache file uses contacts-cache-default.json
   it('step 4: cache file is contacts-cache-default.json', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-compat4-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-compat4-'));
     const dataDir = join(dir, 'data');
 
     const contacts: RelayContact[] = [
       { agent: 'r2', publicKey: kp2.publicKeyBase64, endpoint: 'https://r2.example.com/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
     ];
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -1032,7 +1032,7 @@ describe('t-109: Backward compatibility with single relayUrl', () => {
       relayAPI: createContactsMockRelayAPI(contacts),
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
 
     await net.start();
@@ -1051,9 +1051,9 @@ describe('t-109: Backward compatibility with single relayUrl', () => {
   // Step 5: existing tests pass (verified by running full test suite — this is a meta-test)
   it('step 5: relayAPI injection still works as before', () => {
     // This verifies the injected relay API path still works (constructor doesn't throw)
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-compat5-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-compat5-'));
     const mock = createMockRelayAPI();
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'test',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://test.example.com/inbox',
@@ -1061,7 +1061,7 @@ describe('t-109: Backward compatibility with single relayUrl', () => {
       relayAPI: mock,
       deliverFn: async () => true,
       dataDir: join(dir, 'data'),
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     cleanups.push({ dir, networks: [net] });
 
     assert.ok(net);
@@ -1076,7 +1076,7 @@ import { parseQualifiedName } from '../community-manager.js';
 describe('t-106: Qualified name parsing and resolution', () => {
   const kp = genKeypair();
   const kp2 = genKeypair();
-  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+  let cleanups: Array<{ dir: string; networks: A2ANetwork[] }> = [];
 
   afterEach(async () => {
     for (const { networks, dir } of cleanups) {
@@ -1088,7 +1088,7 @@ describe('t-106: Qualified name parsing and resolution', () => {
     cleanups = [];
   });
 
-  function track(dir: string, ...networks: CC4MeNetwork[]) {
+  function track(dir: string, ...networks: A2ANetwork[]) {
     cleanups.push({ dir, networks });
   }
 
@@ -1112,7 +1112,7 @@ describe('t-106: Qualified name parsing and resolution', () => {
 
   // Step 4: Unqualified resolution — contact in second community only
   it('step 4: unqualified name resolves to second community when only found there', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-resolve-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-resolve-'));
     const dataDir = join(dir, 'data');
 
     const homeContacts: RelayContact[] = [];
@@ -1120,7 +1120,7 @@ describe('t-106: Qualified name parsing and resolution', () => {
       { agent: 'r2', publicKey: kp2.publicKeyBase64, endpoint: 'https://r2.acme.com/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
     ];
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -1134,7 +1134,7 @@ describe('t-106: Qualified name parsing and resolution', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
     await net.start();
 
@@ -1145,7 +1145,7 @@ describe('t-106: Qualified name parsing and resolution', () => {
 
   // Step 5: Unqualified in both → first community wins
   it('step 5: unqualified name in both communities resolves to first', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-resolve2-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-resolve2-'));
     const dataDir = join(dir, 'data');
 
     const homeContacts: RelayContact[] = [
@@ -1155,7 +1155,7 @@ describe('t-106: Qualified name parsing and resolution', () => {
       { agent: 'bmo', publicKey: kp2.publicKeyBase64, endpoint: 'https://bmo.acme/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
     ];
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'test-agent',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://test.example.com/inbox',
@@ -1169,7 +1169,7 @@ describe('t-106: Qualified name parsing and resolution', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
     await net.start();
 
@@ -1179,10 +1179,10 @@ describe('t-106: Qualified name parsing and resolution', () => {
 
   // Step 6: Qualified name routes directly to matching community
   it('step 6: qualified name routes to matching community', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-resolve3-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-resolve3-'));
     const dataDir = join(dir, 'data');
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -1196,7 +1196,7 @@ describe('t-106: Qualified name parsing and resolution', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
     await net.start();
 
@@ -1207,10 +1207,10 @@ describe('t-106: Qualified name parsing and resolution', () => {
 
   // Step 7: Qualified with unknown hostname throws
   it('step 7: unknown hostname throws', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-resolve4-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-resolve4-'));
     const dataDir = join(dir, 'data');
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -1222,7 +1222,7 @@ describe('t-106: Qualified name parsing and resolution', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
     await net.start();
 
@@ -1234,10 +1234,10 @@ describe('t-106: Qualified name parsing and resolution', () => {
 
   // Step 8: Unqualified not found → defaults to first community
   it('step 8: unqualified unknown defaults to first community', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-resolve5-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-resolve5-'));
     const dataDir = join(dir, 'data');
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -1251,7 +1251,7 @@ describe('t-106: Qualified name parsing and resolution', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
     await net.start();
 
@@ -1261,14 +1261,14 @@ describe('t-106: Qualified name parsing and resolution', () => {
 
   // Step 9: Debug log on non-primary resolution
   it('step 9: debug event emitted for non-primary resolution', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-resolve6-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-resolve6-'));
     const dataDir = join(dir, 'data');
 
     const companyContacts: RelayContact[] = [
       { agent: 'r2', publicKey: kp2.publicKeyBase64, endpoint: 'https://r2.acme.com/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
     ];
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -1282,7 +1282,7 @@ describe('t-106: Qualified name parsing and resolution', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
     await net.start();
 
@@ -1302,7 +1302,7 @@ describe('t-106: Qualified name parsing and resolution', () => {
 describe('t-107: Community-scoped contact and messaging operations', () => {
   const kp = genKeypair();
   const kp2 = genKeypair();
-  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+  let cleanups: Array<{ dir: string; networks: A2ANetwork[] }> = [];
 
   afterEach(async () => {
     for (const { networks, dir } of cleanups) {
@@ -1314,13 +1314,13 @@ describe('t-107: Community-scoped contact and messaging operations', () => {
     cleanups = [];
   });
 
-  function track(dir: string, ...networks: CC4MeNetwork[]) {
+  function track(dir: string, ...networks: A2ANetwork[]) {
     cleanups.push({ dir, networks });
   }
 
   // Step 1: getContacts from all communities merged
   it('step 1: getContacts returns contacts from all communities', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-scoped1-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-scoped1-'));
     const dataDir = join(dir, 'data');
 
     const homeContacts: RelayContact[] = [
@@ -1332,7 +1332,7 @@ describe('t-107: Community-scoped contact and messaging operations', () => {
       { agent: 'diana', publicKey: 'pk-diana', endpoint: 'https://diana.acme/inbox', since: '2025-03-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false },
     ];
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -1346,7 +1346,7 @@ describe('t-107: Community-scoped contact and messaging operations', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
     await net.start();
 
@@ -1358,7 +1358,7 @@ describe('t-107: Community-scoped contact and messaging operations', () => {
 
   // Step 2: requestContact with qualified name routes to correct relay
   it('step 2: requestContact routes qualified name to correct community', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-scoped2-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-scoped2-'));
     const dataDir = join(dir, 'data');
 
     let homeRequested: string | null = null;
@@ -1369,7 +1369,7 @@ describe('t-107: Community-scoped contact and messaging operations', () => {
     const companyMock = createMockRelayAPI();
     companyMock.requestContact = async (name: string) => { companyRequested = name; return { ok: true, status: 200 }; };
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -1383,7 +1383,7 @@ describe('t-107: Community-scoped contact and messaging operations', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
     await net.start();
 
@@ -1394,7 +1394,7 @@ describe('t-107: Community-scoped contact and messaging operations', () => {
 
   // Steps 3-5: send with qualified name, check envelope sender is unqualified
   it('steps 3-5: send routes to correct community, envelope uses unqualified names', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-scoped3-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-scoped3-'));
     const dataDir = join(dir, 'data');
 
     const companyContacts: RelayContact[] = [
@@ -1404,7 +1404,7 @@ describe('t-107: Community-scoped contact and messaging operations', () => {
     let capturedEndpoint: string | null = null;
     let capturedEnvelope: any = null;
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -1422,7 +1422,7 @@ describe('t-107: Community-scoped contact and messaging operations', () => {
         return true;
       },
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
     await net.start();
 
@@ -1441,7 +1441,7 @@ describe('t-107: Community-scoped contact and messaging operations', () => {
 
   // Step 7: createGroup routes to first community (default)
   it('step 7: createGroup uses first community by default', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-scoped7-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-scoped7-'));
     const dataDir = join(dir, 'data');
 
     let homeGroupCreated = false;
@@ -1452,7 +1452,7 @@ describe('t-107: Community-scoped contact and messaging operations', () => {
     const companyMock = createMockRelayAPI();
     companyMock.createGroup = async () => { companyGroupCreated = true; return { ok: true, status: 200, data: { groupId: 'g2', name: 'team', owner: 'bmo', status: 'active', createdAt: '' } }; };
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: kp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -1466,7 +1466,7 @@ describe('t-107: Community-scoped contact and messaging operations', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
     await net.start();
 

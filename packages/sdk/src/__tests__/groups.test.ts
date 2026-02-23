@@ -2,8 +2,8 @@
  * Tests for SDK group features (t-087 through t-092).
  *
  * t-087: SDK relay API group methods — uses MockRelayAPI backed by real relay DB functions.
- * t-088: SDK group lifecycle — create, invite, accept (via CC4MeNetwork class).
- * t-089: SDK group lifecycle — leave, remove, dissolve (via CC4MeNetwork class).
+ * t-088: SDK group lifecycle — create, invite, accept (via A2ANetwork class).
+ * t-089: SDK group lifecycle — leave, remove, dissolve (via A2ANetwork class).
  * t-090: Group message fan-out — all online.
  * t-091: Group message fan-out — offline member.
  * t-092: Group message receive — verify and decrypt.
@@ -16,7 +16,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { CC4MeNetwork, type CC4MeNetworkInternalOptions, type DeliverFn } from '../client.js';
+import { A2ANetwork, type A2ANetworkInternalOptions, type DeliverFn } from '../client.js';
 import type { WireEnvelope, GroupMessage } from '../types.js';
 
 import type {
@@ -32,15 +32,15 @@ import type {
 } from '../relay-api.js';
 
 // Import relay DB + route functions for the mock
-import { initializeDatabase } from 'cc4me-relay/dist/db.js';
+import { initializeDatabase } from 'kithkit-a2a-relay/dist/db.js';
 import {
   listContacts as relayListContacts,
   requestContact as relayRequestContact,
   acceptContact as relayAcceptContact,
-} from 'cc4me-relay/dist/routes/contacts.js';
+} from 'kithkit-a2a-relay/dist/routes/contacts.js';
 import {
   updatePresence as relayUpdatePresence,
-} from 'cc4me-relay/dist/routes/presence.js';
+} from 'kithkit-a2a-relay/dist/routes/presence.js';
 import {
   createGroup as relayCreateGroup,
   getGroupDetails as relayGetGroupDetails,
@@ -54,7 +54,7 @@ import {
   listMembers as relayListMembers,
   listInvitations as relayListInvitations,
   getChanges as relayGetChanges,
-} from 'cc4me-relay/dist/routes/groups.js';
+} from 'kithkit-a2a-relay/dist/routes/groups.js';
 
 function setupDb() {
   const dir = mkdtempSync(join(tmpdir(), 'sdk-groups-test-'));
@@ -184,7 +184,7 @@ class MockRelayAPI implements IRelayAPI {
 
   // Transfer ownership — backed by real relay function
   async transferGroupOwnership(groupId: string, newOwner: string): Promise<RelayResponse> {
-    const { transferOwnership } = await import('cc4me-relay/dist/routes/groups.js');
+    const { transferOwnership } = await import('kithkit-a2a-relay/dist/routes/groups.js');
     const result = transferOwnership(this.db, this.agentName, groupId, newOwner);
     if (!result.ok) return { ok: false, status: result.status as number, error: result.error };
     return { ok: true, status: 200 };
@@ -325,7 +325,7 @@ describe('t-087: SDK relay API group methods', () => {
 });
 
 // ================================================================
-// Helpers for t-088 / t-089: CC4MeNetwork-level group tests
+// Helpers for t-088 / t-089: A2ANetwork-level group tests
 // ================================================================
 
 function genKeypair() {
@@ -344,14 +344,14 @@ function createActiveAgentWithKey(db: ReturnType<typeof initializeDatabase>, nam
   ).run(name, publicKeyBase64);
 }
 
-/** Create a CC4MeNetwork client backed by MockRelayAPI for group testing. */
+/** Create a A2ANetwork client backed by MockRelayAPI for group testing. */
 function createGroupNetworkClient(
   relay: MockRelayAPI,
   username: string,
   privateKeyDer: Buffer,
   dir: string,
-): CC4MeNetwork {
-  return new CC4MeNetwork({
+): A2ANetwork {
+  return new A2ANetwork({
     relayUrl: 'http://localhost:0', // not used — mock relay
     username,
     privateKey: Buffer.from(privateKeyDer),
@@ -359,7 +359,7 @@ function createGroupNetworkClient(
     dataDir: join(dir, `${username}-data`),
     heartbeatInterval: 60_000, // long interval — manual in tests
     relayAPI: relay,
-  } as CC4MeNetworkInternalOptions);
+  } as A2ANetworkInternalOptions);
 }
 
 // ================================================================
@@ -367,7 +367,7 @@ function createGroupNetworkClient(
 // ================================================================
 
 describe('t-088: SDK group lifecycle — create, invite, accept', () => {
-  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+  let cleanups: Array<{ dir: string; networks: A2ANetwork[] }> = [];
 
   afterEach(async () => {
     for (const { networks, dir } of cleanups) {
@@ -506,7 +506,7 @@ describe('t-088: SDK group lifecycle — create, invite, accept', () => {
 // ================================================================
 
 describe('t-089: SDK group lifecycle — leave, remove, dissolve', () => {
-  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+  let cleanups: Array<{ dir: string; networks: A2ANetwork[] }> = [];
 
   afterEach(async () => {
     for (const { networks, dir } of cleanups) {
@@ -759,7 +759,7 @@ class FullMockRelayAPI implements IRelayAPI {
 
   // Transfer ownership — backed by real relay function
   async transferGroupOwnership(groupId: string, newOwner: string): Promise<RelayResponse> {
-    const { transferOwnership } = await import('cc4me-relay/dist/routes/groups.js');
+    const { transferOwnership } = await import('kithkit-a2a-relay/dist/routes/groups.js');
     const result = transferOwnership(this.db, this.agentName, groupId, newOwner);
     if (!result.ok) return { ok: false, status: result.status as number, error: result.error };
     return { ok: true, status: 200 };
@@ -792,7 +792,7 @@ interface MsgTestEnv {
   dir: string;
   keys: Record<string, MsgAgentKeys>;
   relays: Record<string, FullMockRelayAPI>;
-  networks: Record<string, CC4MeNetwork>;
+  networks: Record<string, A2ANetwork>;
   delivered: WireEnvelope[];
 }
 
@@ -803,7 +803,7 @@ function setupMsgEnv(agents: string[]): MsgTestEnv {
 
   const keys: Record<string, MsgAgentKeys> = {};
   const relays: Record<string, FullMockRelayAPI> = {};
-  const networks: Record<string, CC4MeNetwork> = {};
+  const networks: Record<string, A2ANetwork> = {};
   const delivered: WireEnvelope[] = [];
 
   // Create agents with keypairs
@@ -829,7 +829,7 @@ function setupMsgEnv(agents: string[]): MsgTestEnv {
   // Create relay mocks and network clients
   for (const name of agents) {
     relays[name] = new FullMockRelayAPI(db, name);
-    networks[name] = new CC4MeNetwork({
+    networks[name] = new A2ANetwork({
       relayUrl: 'http://localhost:0',
       username: name,
       privateKey: Buffer.from(keys[name]!.privateKeyDer),
@@ -838,7 +838,7 @@ function setupMsgEnv(agents: string[]): MsgTestEnv {
       heartbeatInterval: 60_000,
       relayAPI: relays[name],
       deliverFn,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
   }
 
   return { db, dir, keys, relays, networks, delivered };
@@ -1245,7 +1245,7 @@ describe('t-093: Should-haves — dedup, cache refresh, ownership transfer', () 
     // Create spark's relay and network
     env!.relays.spark = new FullMockRelayAPI(env!.db, 'spark');
     env!.keys.spark = { privateKeyDer: sparkKeys.privateKeyDer as Buffer, publicKeyBase64: sparkKeys.publicKeyBase64 };
-    env!.networks.spark = new CC4MeNetwork({
+    env!.networks.spark = new A2ANetwork({
       relayUrl: 'http://localhost:0',
       username: 'spark',
       privateKey: Buffer.from(sparkKeys.privateKeyDer),
@@ -1257,7 +1257,7 @@ describe('t-093: Should-haves — dedup, cache refresh, ownership transfer', () 
         env!.delivered.push(envelope);
         return true;
       },
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     await env!.networks.spark!.start();
 
     // Refresh BMO's contacts cache (spark was added after start())

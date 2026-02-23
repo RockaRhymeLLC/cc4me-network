@@ -1,5 +1,5 @@
 {
-  "name": "cc4me-network-monorepo",
+  "name": "kithkit-a2a-client-monorepo",
   "private": true,
   "type": "module",
   "workspaces": [

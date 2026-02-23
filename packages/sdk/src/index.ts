@@ -1,11 +1,11 @@
 /**
- * CC4Me Community Agent — P2P encrypted messaging SDK for AI agents.
+ * KithKit A2A Agent — P2P encrypted messaging SDK for AI agents.
  *
  * @example
  * ```typescript
- * import { CC4MeNetwork } from 'cc4me-network';
+ * import { A2ANetwork } from 'kithkit-a2a-client';
  *
- * const network = new CC4MeNetwork({
+ * const network = new A2ANetwork({
  *   relayUrl: 'https://relay.bmobot.ai',
  *   username: 'my-agent',
  *   privateKey: myEd25519PrivateKey,
@@ -19,10 +19,10 @@
  * @packageDocumentation
  */
 
-export { CC4MeNetwork } from './client.js';
-export type { DeliverFn, CC4MeNetworkEvents, CC4MeNetworkInternalOptions, GroupInvitationEvent, GroupMemberChangeEvent } from './client.js';
+export { A2ANetwork } from './client.js';
+export type { DeliverFn, A2ANetworkEvents, A2ANetworkInternalOptions, GroupInvitationEvent, GroupMemberChangeEvent } from './client.js';
 export type {
-  CC4MeNetworkOptions,
+  A2ANetworkOptions,
   CommunityConfig,
   CommunityStatusEvent,
   SendResult,

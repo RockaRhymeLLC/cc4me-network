@@ -1,5 +1,5 @@
 /**
- * CC4MeNetwork — main SDK client.
+ * A2ANetwork — main SDK client.
  *
  * Handles contacts, presence, local cache, lifecycle, and P2P encrypted messaging.
  */
@@ -7,7 +7,7 @@
 import { EventEmitter } from 'node:events';
 import { createPrivateKey, generateKeyPairSync, randomUUID, sign as cryptoSign, type KeyObject } from 'node:crypto';
 import type {
-  CC4MeNetworkOptions,
+  A2ANetworkOptions,
   CommunityConfig,
   CommunityStatusEvent,
   SendResult,
@@ -66,7 +66,7 @@ export interface GroupMemberChangeEvent {
   action: 'joined' | 'left' | 'removed' | 'invited' | 'ownership-transferred';
 }
 
-export interface CC4MeNetworkEvents {
+export interface A2ANetworkEvents {
   message: [msg: Message];
   'contact-request': [req: ContactRequest];
   broadcast: [broadcast: Broadcast];
@@ -77,7 +77,7 @@ export interface CC4MeNetworkEvents {
   'community:status': [event: CommunityStatusEvent];
 }
 
-export interface CC4MeNetworkInternalOptions extends CC4MeNetworkOptions {
+export interface A2ANetworkInternalOptions extends A2ANetworkOptions {
   /** Injectable relay API for single-relay testing. If not provided, uses HttpRelayAPI. */
   relayAPI?: IRelayAPI;
   /** Injectable relay APIs map for multi-community testing. Key: "communityName:primary" or "communityName:failover". */
@@ -97,7 +97,7 @@ const COMMUNITY_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,63}$/;
  * Validate and normalize SDK config. Returns resolved communities array.
  * Throws on invalid config.
  */
-function validateConfig(options: CC4MeNetworkOptions): CommunityConfig[] {
+function validateConfig(options: A2ANetworkOptions): CommunityConfig[] {
   const { relayUrl, communities } = options;
 
   // Mutual exclusion
@@ -137,8 +137,8 @@ function validateConfig(options: CC4MeNetworkOptions): CommunityConfig[] {
   return communities!;
 }
 
-export class CC4MeNetwork extends EventEmitter {
-  private options: CC4MeNetworkOptions & { dataDir: string; heartbeatInterval: number; retryQueueMax: number; failoverThreshold: number };
+export class A2ANetwork extends EventEmitter {
+  private options: A2ANetworkOptions & { dataDir: string; heartbeatInterval: number; retryQueueMax: number; failoverThreshold: number };
   /** Resolved communities (always present — single relayUrl creates 'default' community). */
   readonly communities: CommunityConfig[];
   private started = false;
@@ -160,14 +160,14 @@ export class CC4MeNetwork extends EventEmitter {
   private seenGroupMessageIds: Set<string> = new Set();
   private static MAX_SEEN_GROUP_MSG_IDS = 1000;
 
-  constructor(options: CC4MeNetworkInternalOptions) {
+  constructor(options: A2ANetworkInternalOptions) {
     super();
 
     // Validate and normalize config
     this.communities = validateConfig(options);
 
     this.options = {
-      dataDir: './cc4me-network-data',
+      dataDir: './a2a-network-data',
       heartbeatInterval: 5 * 60 * 1000,
       retryQueueMax: 100,
       failoverThreshold: 3,
@@ -255,7 +255,7 @@ export class CC4MeNetwork extends EventEmitter {
   }
 
   /**
-   * Generate a new Ed25519 keypair suitable for CC4Me Network registration.
+   * Generate a new Ed25519 keypair suitable for KithKit A2A Network registration.
    * Returns base64-encoded DER keys (SPKI for public, PKCS8 for private).
    */
   static generateKeypair(): { publicKey: string; privateKey: string } {
@@ -765,7 +765,7 @@ export class CC4MeNetwork extends EventEmitter {
       for (const b of result.data) {
         if (this.seenBroadcastIds.has(b.id)) continue;
         this.seenBroadcastIds.add(b.id);
-        if (this.seenBroadcastIds.size > CC4MeNetwork.MAX_SEEN_BROADCAST_IDS) {
+        if (this.seenBroadcastIds.size > A2ANetwork.MAX_SEEN_BROADCAST_IDS) {
           const first = this.seenBroadcastIds.values().next().value;
           if (first) this.seenBroadcastIds.delete(first);
         }
@@ -798,7 +798,7 @@ export class CC4MeNetwork extends EventEmitter {
     for (const req of requests) {
       if (this.seenContactRequestIds.has(req.from)) continue;
       this.seenContactRequestIds.add(req.from);
-      if (this.seenContactRequestIds.size > CC4MeNetwork.MAX_SEEN_CONTACT_REQUEST_IDS) {
+      if (this.seenContactRequestIds.size > A2ANetwork.MAX_SEEN_CONTACT_REQUEST_IDS) {
         const first = this.seenContactRequestIds.values().next().value;
         if (first) this.seenContactRequestIds.delete(first);
       }
@@ -1063,7 +1063,7 @@ export class CC4MeNetwork extends EventEmitter {
 
     // Track this messageId for dedup
     this.seenGroupMessageIds.add(envelope.messageId);
-    if (this.seenGroupMessageIds.size > CC4MeNetwork.MAX_SEEN_GROUP_MSG_IDS) {
+    if (this.seenGroupMessageIds.size > A2ANetwork.MAX_SEEN_GROUP_MSG_IDS) {
       const first = this.seenGroupMessageIds.values().next().value;
       if (first) this.seenGroupMessageIds.delete(first);
     }
@@ -1093,7 +1093,7 @@ export class CC4MeNetwork extends EventEmitter {
   /** Get group members with local caching (60s staleness). */
   private async getGroupMembersCached(groupId: string): Promise<RelayGroupMember[]> {
     const cached = this.memberCache.get(groupId);
-    if (cached && Date.now() - cached.fetchedAt < CC4MeNetwork.MEMBER_CACHE_TTL) {
+    if (cached && Date.now() - cached.fetchedAt < A2ANetwork.MEMBER_CACHE_TTL) {
       return cached.members;
     }
     const members = await this.getGroupMembers(groupId);
@@ -1144,7 +1144,7 @@ export class CC4MeNetwork extends EventEmitter {
       finalStatus: 'failed',
     });
     // Evict oldest reports to prevent unbounded growth
-    if (this.deliveryReports.size > CC4MeNetwork.MAX_DELIVERY_REPORTS) {
+    if (this.deliveryReports.size > A2ANetwork.MAX_DELIVERY_REPORTS) {
       const first = this.deliveryReports.keys().next().value;
       if (first) this.deliveryReports.delete(first);
     }

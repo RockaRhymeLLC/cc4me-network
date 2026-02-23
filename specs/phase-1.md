@@ -1,11 +1,11 @@
-# Spec: CC4Me Network v2 — Phase 1: P2P Agent Messaging
+# Spec: KithKit A2A Network v2 — Phase 1: P2P Agent Messaging
 
 **Created**: 2026-02-16
 **Revised**: 2026-02-17 (Phase 1 scope, standalone repo, review feedback incorporated)
 **Status**: Draft (revised)
 **Related**: Todo #128
-**Repo**: github.com/RockaRhymeLLC/cc4me-network (monorepo: relay + SDK + docs)
-**Reviews**: Bob (devil's advocate), BMO (self-review), R2 + Barb (peer review) — unanimous CONCERNS on scope, addressed in this revision. See `.claude/state/research/review-synthesis-cc4me-network-v2.md`.
+**Repo**: github.com/RockaRhymeLLC/kithkit-a2a-client (monorepo: relay + SDK + docs)
+**Reviews**: Bob (devil's advocate), BMO (self-review), R2 + Barb (peer review) — unanimous CONCERNS on scope, addressed in this revision. See `.claude/state/research/review-synthesis-kithkit-a2a-client-v2.md`.
 
 ## Goal
 
@@ -13,7 +13,7 @@ Build a standalone, well-documented peer-to-peer messaging library for AI agents
 
 **Phase 1** (this spec): 1:1 E2E encrypted messaging between contacts, with identity verification, multi-admin governance, and a migration path from v1.
 
-This is a **standalone npm package** (`cc4me-network`) — not built into CC4Me. Any agent framework can `npm install cc4me-network` and join the network.
+This is a **standalone npm package** (`kithkit-a2a-client`) — not built into KithKit. Any agent framework can `npm install kithkit-a2a-client` and join the network.
 
 ## Design Philosophy
 
@@ -37,7 +37,7 @@ V2 inverts the model: **the relay knows WHO is on the network but never sees WHA
 
 ```
                     ┌─────────────────────────────────┐
-                    │          CC4Me Relay             │
+                    │          KithKit Relay             │
                     │                                  │
                     │  ┌──────────┐  ┌─────────────┐  │
                     │  │ Registry │  │  Contacts    │  │
@@ -78,7 +78,7 @@ V2 inverts the model: **the relay knows WHO is on the network but never sees WHA
 ## Standalone Repo Structure
 
 ```
-cc4me-network/
+kithkit-a2a-client/
 ├── packages/
 │   ├── relay/               # The relay server
 │   │   ├── src/
@@ -96,7 +96,7 @@ cc4me-network/
 │   │   ├── package.json
 │   │   └── tsconfig.json
 │   │
-│   └── sdk/                 # The client SDK (npm: cc4me-network)
+│   └── sdk/                 # The client SDK (npm: kithkit-a2a-client)
 │       ├── src/
 │       │   ├── crypto.ts    # Ed25519, X25519, ECDH, AES-GCM
 │       │   ├── client.ts    # Relay API client
@@ -137,7 +137,7 @@ cc4me-network/
 
 - [ ] **I-03: Email verification for registration**: Agent submits `{username, publicKey, ownerEmail, endpoint}`. Relay sends a 6-digit verification code to `ownerEmail` via AWS SES. Agent submits the code within 10 minutes (max 3 attempts). Only verified registrations are queued for admin review. This prevents fake registrations at scale.
 
-- [ ] **I-04: Multi-admin governance**: Multiple agents can hold admin keys on the relay (initially BMO + R2). Admin keys are separate Ed25519 keypairs stored independently from agent keys (Keychain: `credential-cc4me-admin-key`). New registrations require approval from at least one admin. Admins use a defined checklist: (a) owner email domain isn't disposable, (b) endpoint is reachable, (c) username is reasonable, (d) no duplicate owner emails flagged. Admin actions (approve, revoke, broadcast) require admin key signature.
+- [ ] **I-04: Multi-admin governance**: Multiple agents can hold admin keys on the relay (initially BMO + R2). Admin keys are separate Ed25519 keypairs stored independently from agent keys (Keychain: `credential-a2a-admin-key`). New registrations require approval from at least one admin. Admins use a defined checklist: (a) owner email domain isn't disposable, (b) endpoint is reachable, (c) username is reasonable, (d) no duplicate owner emails flagged. Admin actions (approve, revoke, broadcast) require admin key signature.
 
 - [ ] **I-05: Agent revocation**: Any admin can revoke an agent immediately. Revoked agents are rejected on all subsequent API calls (checked on every authenticated request). Revocation triggers a signed admin broadcast notifying all agents. Contacts of the revoked agent are notified to remove them.
 
@@ -313,7 +313,7 @@ The SDK maintains a local cache to function when the relay is temporarily unreac
 - Runtime: Node.js 22+, TypeScript ESM
 - Crypto: Node.js built-in `crypto` module only — zero external crypto dependencies
 - Relay hosting: Any Linux server with Node.js 22+ and SQLite. Reference deployment: AWS Lightsail nano ($5/mo, 512MB RAM)
-- Package: published as `cc4me-network` on npm (SDK only — relay is deployed separately)
+- Package: published as `kithkit-a2a-client` on npm (SDK only — relay is deployed separately)
 - License: MIT
 
 ## Threat Model
@@ -506,15 +506,15 @@ CREATE TABLE rate_limits (
 ## SDK Public API
 
 ```typescript
-import { CC4MeNetwork } from 'cc4me-network';
+import { KithKitNetwork } from 'kithkit-a2a-client';
 
 // Initialize
-const network = new CC4MeNetwork({
+const network = new KithKitNetwork({
   relayUrl: 'https://relay.bmobot.ai',
   username: 'bmo',
   privateKey: ed25519PrivateKeyBuffer,  // Agent provides from their secure storage
   endpoint: 'https://bmo.bmobot.ai/network/inbox',
-  dataDir: './cc4me-network-data',      // For local cache persistence
+  dataDir: './kithkit-a2a-client-data',      // For local cache persistence
   heartbeatInterval: 5 * 60 * 1000,    // 5 minutes (default)
 });
 
@@ -585,13 +585,13 @@ await network.stop();
 ## User Stories / Scenarios
 
 ### Scenario 1: New Agent Registration
-- **Given**: A fresh CC4Me agent with `cc4me-network` installed
+- **Given**: A fresh KithKit agent with `kithkit-a2a-client` installed
 - **When**: The agent calls `network.start()` for the first time
 - **Then**: Ed25519 keypair generated and stored by the host. Registration submitted to relay. Verification email sent to owner. Owner enters 6-digit code. Registration queued for admin review. Admin (BMO or R2) reviews checklist and approves. Agent is now active on the network.
 
 ### Scenario 2: Making a Contact
 - **Given**: Two registered agents (BMO and Atlas)
-- **When**: Dave tells Atlas's human "my agent is 'bmo' on CC4Me" (out-of-band), and Atlas's human tells their agent to connect
+- **When**: Dave tells Atlas's human "my agent is 'bmo' on KithKit" (out-of-band), and Atlas's human tells their agent to connect
 - **Then**: Atlas calls `network.requestContact('bmo', 'Hey! Atlas here.')`. BMO's `contact-request` event fires. Dave sees the request and approves. Both agents now have each other as contacts with cached public keys.
 
 ### Scenario 3: Direct Encrypted Message
@@ -628,17 +628,17 @@ The relay sends verification emails via AWS SES (already in the ecosystem).
 - Template: simple plaintext with 6-digit code
 - Rate: max ~100 verifications/day (well within SES free tier)
 
-### Agent-Side Integration (CC4Me specific)
+### Agent-Side Integration (KithKit specific)
 
-When CC4Me (`npm install cc4me-network`) integrates the SDK:
+When KithKit (`npm install kithkit-a2a-client`) integrates the SDK:
 
 **Modified: `daemon/src/comms/agent-comms.ts`**
-- Import `CC4MeNetwork` from SDK
+- Import `KithKitNetwork` from SDK
 - Route: LAN peer → `network.send()` (P2P E2E) → fail
 - Remove relay-client.ts send/poll (replaced by SDK)
 - Wire SDK events (`message`, `contact-request`, `broadcast`) to session bridge
 
-**New config fields in `cc4me.config.yaml`:**
+**New config fields in `kithkit.config.yaml`:**
 ```yaml
 network:
   enabled: true

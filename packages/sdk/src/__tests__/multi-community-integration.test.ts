@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CC4MeNetwork, type CC4MeNetworkInternalOptions } from '../client.js';
+import { A2ANetwork, type A2ANetworkInternalOptions } from '../client.js';
 import type { IRelayAPI, RelayResponse, RelayContact, RelayPendingRequest, RelayBroadcast, RelayGroup, RelayGroupMember, RelayGroupInvitation, RelayGroupChange } from '../relay-api.js';
 import type { CommunityConfig, WireEnvelope, KeyRotationResult } from '../types.js';
 
@@ -72,7 +72,7 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
   const companyKp = genKeypair();
   const newKp = genKeypair();
   const newCompanyKp = genKeypair();
-  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+  let cleanups: Array<{ dir: string; networks: A2ANetwork[] }> = [];
 
   afterEach(async () => {
     for (const { networks, dir } of cleanups) {
@@ -84,13 +84,13 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
     cleanups = [];
   });
 
-  function track(dir: string, ...networks: CC4MeNetwork[]) {
+  function track(dir: string, ...networks: A2ANetwork[]) {
     cleanups.push({ dir, networks });
   }
 
   // Step 1: Call rotateKey() for default key → home + public called, company NOT
   it('step 1: rotateKey fans out to communities sharing default keypair', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-rotate1-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-rotate1-'));
     const dataDir = join(dir, 'data');
 
     const rotatedRelays: string[] = [];
@@ -105,7 +105,7 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
       rotateKey: async () => { rotatedRelays.push('company'); return { ok: true, status: 200 }; },
     });
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: defaultKp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -121,7 +121,7 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
 
     // rotateKey() with no options → default key communities only
@@ -134,7 +134,7 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
 
   // Step 2: Verify rotation payloads — both relays receive same new public key
   it('step 2: both relays receive the same new public key', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-rotate2-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-rotate2-'));
     const dataDir = join(dir, 'data');
 
     const receivedKeys: string[] = [];
@@ -146,7 +146,7 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
       rotateKey: async (_name: string, newPk: string) => { receivedKeys.push(newPk); return { ok: true, status: 200 }; },
     });
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: defaultKp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -160,7 +160,7 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
 
     await net.rotateKey(newKp.publicKeyBase64);
@@ -172,7 +172,7 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
 
   // Step 3: Partial failure — home fails, public succeeds → event emitted
   it('step 3: partial failure emits event with per-community results', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-rotate3-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-rotate3-'));
     const dataDir = join(dir, 'data');
 
     const homeMock = createMockRelayAPI({
@@ -182,7 +182,7 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
       rotateKey: async () => ({ ok: true, status: 200 }),
     });
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: defaultKp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -196,7 +196,7 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
 
     // Track emitted events
@@ -224,7 +224,7 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
 
   // Step 4: Rotate company's independent keypair → only company called
   it('step 4: independent keypair rotation targets only that community', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cc4me-rotate4-'));
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-rotate4-'));
     const dataDir = join(dir, 'data');
 
     const rotatedRelays: string[] = [];
@@ -239,7 +239,7 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
       rotateKey: async () => { rotatedRelays.push('company'); return { ok: true, status: 200 }; },
     });
 
-    const net = new CC4MeNetwork({
+    const net = new A2ANetwork({
       username: 'bmo',
       privateKey: defaultKp.privateKeyDer,
       endpoint: 'https://bmo.example.com/inbox',
@@ -255,7 +255,7 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
       },
       deliverFn: async () => true,
       dataDir,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(dir, net);
 
     // Rotate company's key explicitly
@@ -273,7 +273,7 @@ describe('t-110: Key rotation with shared keypairs fans out', () => {
 describe('t-112: Multi-community E2E integration (send, receive, failover, isolation)', () => {
   const aliceKp = genKeypair();
   const bobKp = genKeypair();
-  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+  let cleanups: Array<{ dir: string; networks: A2ANetwork[] }> = [];
 
   afterEach(async () => {
     for (const { networks, dir } of cleanups) {
@@ -285,7 +285,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
     cleanups = [];
   });
 
-  function track(dir: string, ...networks: CC4MeNetwork[]) {
+  function track(dir: string, ...networks: A2ANetwork[]) {
     cleanups.push({ dir, networks });
   }
 
@@ -313,11 +313,11 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
 
   // Step 1: Set up 2 agents on 2 communities
   it('step 1: agents initialize with correct community configs', async () => {
-    const aliceDir = mkdtempSync(join(tmpdir(), 'cc4me-e2e-alice-'));
-    const bobDir = mkdtempSync(join(tmpdir(), 'cc4me-e2e-bob-'));
+    const aliceDir = mkdtempSync(join(tmpdir(), 'a2a-e2e-alice-'));
+    const bobDir = mkdtempSync(join(tmpdir(), 'a2a-e2e-bob-'));
 
     // Alice is on both home + company, Bob is on home only
-    const alice = new CC4MeNetwork({
+    const alice = new A2ANetwork({
       username: 'alice',
       privateKey: aliceKp.privateKeyDer,
       endpoint: 'https://alice.example.com/inbox',
@@ -336,9 +336,9 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
       },
       deliverFn: async () => true,
       dataDir: join(aliceDir, 'data'),
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
 
-    const bob = new CC4MeNetwork({
+    const bob = new A2ANetwork({
       username: 'bob',
       privateKey: bobKp.privateKeyDer,
       endpoint: 'https://bob.example.com/inbox',
@@ -355,7 +355,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
       },
       deliverFn: async () => true,
       dataDir: join(bobDir, 'data'),
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
 
     track(aliceDir, alice);
     track(bobDir, bob);
@@ -369,13 +369,13 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
 
   // Step 2: Alice sends message to Bob on home community
   it('step 2: message delivered via P2P on home community', async () => {
-    const aliceDir = mkdtempSync(join(tmpdir(), 'cc4me-e2e-send-'));
-    const bobDir = mkdtempSync(join(tmpdir(), 'cc4me-e2e-recv-'));
+    const aliceDir = mkdtempSync(join(tmpdir(), 'a2a-e2e-send-'));
+    const bobDir = mkdtempSync(join(tmpdir(), 'a2a-e2e-recv-'));
 
     let deliveredEndpoint: string | null = null;
     let deliveredEnvelope: WireEnvelope | null = null;
 
-    const alice = new CC4MeNetwork({
+    const alice = new A2ANetwork({
       username: 'alice',
       privateKey: aliceKp.privateKeyDer,
       endpoint: 'https://alice.example.com/inbox',
@@ -398,7 +398,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
         return true;
       },
       dataDir: join(aliceDir, 'data'),
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(aliceDir, alice);
     track(bobDir);
 
@@ -415,9 +415,9 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
   // Step 3: Bob NOT visible as contact on Alice's company community
   // Verify via cache: Bob exists in home cache but NOT in company cache
   it('step 3: cross-community isolation — Bob not in company cache', async () => {
-    const aliceDir = mkdtempSync(join(tmpdir(), 'cc4me-e2e-iso-'));
+    const aliceDir = mkdtempSync(join(tmpdir(), 'a2a-e2e-iso-'));
 
-    const alice = new CC4MeNetwork({
+    const alice = new A2ANetwork({
       username: 'alice',
       privateKey: aliceKp.privateKeyDer,
       endpoint: 'https://alice.example.com/inbox',
@@ -433,7 +433,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
       },
       deliverFn: async () => true,
       dataDir: join(aliceDir, 'data'),
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(aliceDir, alice);
 
     await alice.start();
@@ -457,7 +457,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
   // so failover is triggered through the CommunityRelayManager's callApi() path.
   // We use heartbeat as the failure trigger since it goes through callApi().
   it('step 4: failover on home emits community:status event', async () => {
-    const aliceDir = mkdtempSync(join(tmpdir(), 'cc4me-e2e-fo-'));
+    const aliceDir = mkdtempSync(join(tmpdir(), 'a2a-e2e-fo-'));
 
     let primaryOk = true;
     const bobContact: RelayContact = { agent: 'bob', publicKey: bobKp.publicKeyBase64, endpoint: 'https://bob.example.com/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false };
@@ -468,7 +468,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
     });
     const homeFailover = createContactsMockRelayAPI([bobContact]);
 
-    const alice = new CC4MeNetwork({
+    const alice = new A2ANetwork({
       username: 'alice',
       privateKey: aliceKp.privateKeyDer,
       endpoint: 'https://alice.example.com/inbox',
@@ -482,7 +482,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
       deliverFn: async () => true,
       dataDir: join(aliceDir, 'data'),
       failoverThreshold: 3,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(aliceDir, alice);
 
     await alice.start();
@@ -507,7 +507,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
 
   // Step 5: Message delivery works after failover (P2P uses cached endpoints)
   it('step 5: message delivery works after failover', async () => {
-    const aliceDir = mkdtempSync(join(tmpdir(), 'cc4me-e2e-post-fo-'));
+    const aliceDir = mkdtempSync(join(tmpdir(), 'a2a-e2e-post-fo-'));
 
     let primaryOk = true;
     let delivered = false;
@@ -519,7 +519,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
     });
     const homeFailover = createContactsMockRelayAPI([bobContact]);
 
-    const alice = new CC4MeNetwork({
+    const alice = new A2ANetwork({
       username: 'alice',
       privateKey: aliceKp.privateKeyDer,
       endpoint: 'https://alice.example.com/inbox',
@@ -533,7 +533,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
       deliverFn: async () => { delivered = true; return true; },
       dataDir: join(aliceDir, 'data'),
       failoverThreshold: 3,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(aliceDir, alice);
 
     await alice.start();
@@ -556,7 +556,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
 
   // Step 6: getContacts after failover returns contacts from failover relay
   it('step 6: getContacts after failover fetches from failover relay', async () => {
-    const aliceDir = mkdtempSync(join(tmpdir(), 'cc4me-e2e-fo-contacts-'));
+    const aliceDir = mkdtempSync(join(tmpdir(), 'a2a-e2e-fo-contacts-'));
 
     let primaryOk = true;
     const bobContact: RelayContact = { agent: 'bob', publicKey: bobKp.publicKeyBase64, endpoint: 'https://bob.example.com/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false };
@@ -567,7 +567,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
     });
     const homeFailover = createContactsMockRelayAPI([bobContact]);
 
-    const alice = new CC4MeNetwork({
+    const alice = new A2ANetwork({
       username: 'alice',
       privateKey: aliceKp.privateKeyDer,
       endpoint: 'https://alice.example.com/inbox',
@@ -581,7 +581,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
       deliverFn: async () => true,
       dataDir: join(aliceDir, 'data'),
       failoverThreshold: 3,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(aliceDir, alice);
 
     await alice.start();
@@ -604,7 +604,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
 
   // Step 7: Primary recovers — no auto-failback (sticky)
   it('step 7: primary recovers but agent stays on failover (sticky)', async () => {
-    const aliceDir = mkdtempSync(join(tmpdir(), 'cc4me-e2e-sticky-'));
+    const aliceDir = mkdtempSync(join(tmpdir(), 'a2a-e2e-sticky-'));
 
     let primaryOk = true;
     const bobContact: RelayContact = { agent: 'bob', publicKey: bobKp.publicKeyBase64, endpoint: 'https://bob.example.com/inbox', since: '2025-01-01', online: true, lastSeen: null, keyUpdatedAt: null, recoveryInProgress: false };
@@ -615,7 +615,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
     });
     const homeFailover = createContactsMockRelayAPI([bobContact]);
 
-    const alice = new CC4MeNetwork({
+    const alice = new A2ANetwork({
       username: 'alice',
       privateKey: aliceKp.privateKeyDer,
       endpoint: 'https://alice.example.com/inbox',
@@ -629,7 +629,7 @@ describe('t-112: Multi-community E2E integration (send, receive, failover, isola
       deliverFn: async () => true,
       dataDir: join(aliceDir, 'data'),
       failoverThreshold: 3,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(aliceDir, alice);
 
     await alice.start();

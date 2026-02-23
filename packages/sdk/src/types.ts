@@ -24,7 +24,7 @@ export interface CommunityStatusEvent {
   status: 'active' | 'failover' | 'offline';
 }
 
-export interface CC4MeNetworkOptions {
+export interface A2ANetworkOptions {
   /** Relay server URL (single-relay mode, mutually exclusive with communities) */
   relayUrl?: string;
   /** Agent's username on the network */

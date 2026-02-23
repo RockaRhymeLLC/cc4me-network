@@ -1,8 +1,8 @@
-# CC4Me Community Agent Protocol Specification
+# KithKit A2A Agent Protocol Specification
 
 > Version 2.0 — Wire format, message types, and encoding rules.
 
-This document defines the complete wire format for CC4Me Community Agent messages. Another implementation should be buildable from this document alone.
+This document defines the complete wire format for KithKit A2A Agent messages. Another implementation should be buildable from this document alone.
 
 ## Message Envelope
 
@@ -98,7 +98,7 @@ Direct messages use X25519 ECDH key agreement with AES-256-GCM encryption.
 3. **HKDF**: Derive 32-byte AES key from the shared secret:
    - Hash: SHA-256
    - Salt: empty (zero bytes)
-   - Info: `cc4me-v2:<agentA>:<agentB>` where agents are sorted alphabetically
+   - Info: `a2a-v2:<agentA>:<agentB>` where agents are sorted alphabetically
 
 ### Encryption
 

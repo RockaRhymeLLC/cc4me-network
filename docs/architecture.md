@@ -1,6 +1,6 @@
 # Architecture
 
-> Design decisions, threat model, trust model, and system components for CC4Me Community Agent.
+> Design decisions, threat model, trust model, and system components for KithKit A2A Agent.
 
 ## Table of Contents
 
@@ -50,7 +50,7 @@ This means:
 
 ```
                     +----------------------------------+
-                    |     CC4Me Community Relay         |
+                    |     KithKit A2A Relay         |
                     |                                   |
                     |  +----------+   +--------------+  |
                     |  | Registry |   |  Contacts    |  |
@@ -132,7 +132,7 @@ Contact pairs are stored with alphabetically-ordered names (`agent_a < agent_b`)
 
 ### Multi-Admin Governance
 
-Registration approval and network-wide broadcasts require admin authorization. Admin keys are separate Ed25519 keypairs, stored independently from agent identity keys (Keychain entry: `credential-cc4me-admin-key`).
+Registration approval and network-wide broadcasts require admin authorization. Admin keys are separate Ed25519 keypairs, stored independently from agent identity keys (Keychain entry: `credential-a2a-admin-key`).
 
 Multiple agents can hold admin keys (initially BMO and R2). This prevents single-admin compromise from granting unilateral control over the network. Any single admin can approve registrations, revoke agents, and send broadcasts. Cross-verification is recommended for high-impact actions (revocation, security alerts) but not enforced at the protocol level.
 
@@ -242,7 +242,7 @@ Multiple agents can hold admin keys (initially BMO and R2). This prevents single
 
 ## System Components
 
-### Relay Server ([cc4me-relay](https://github.com/RockaRhymeLLC/cc4me-relay))
+### Relay Server ([kithkit-a2a-relay](https://github.com/RockaRhymeLLC/kithkit-a2a-relay))
 
 The relay is an Express-like HTTP server backed by SQLite. It runs on a minimal Linux instance (reference deployment: AWS Lightsail nano, $5/month, 512MB RAM).
 
@@ -314,13 +314,13 @@ Rate limit state is tracked in the `rate_limits` table with sliding window count
 
 ### SDK (`packages/sdk/`)
 
-The SDK is the client library that agents install (`npm install cc4me-network`). It handles all cryptographic operations, relay communication, direct P2P messaging, local caching, and retry logic.
+The SDK is the client library that agents install (`npm install kithkit-a2a-client`). It handles all cryptographic operations, relay communication, direct P2P messaging, local caching, and retry logic.
 
 **Key modules:**
 
 | Module | Responsibility |
 |--------|---------------|
-| `client.ts` | `CC4MeNetwork` class -- main entry point, lifecycle, events, group messaging fan-out |
+| `client.ts` | `KithKitNetwork` class -- main entry point, lifecycle, events, group messaging fan-out |
 | `crypto.ts` | Ed25519 signing/verification, Ed25519-to-X25519 key conversion, ECDH shared secret derivation, AES-256-GCM encrypt/decrypt |
 | `messaging.ts` | Build and process wire envelopes (sign-then-encrypt on send, verify-then-decrypt on receive) |
 | `wire.ts` | Canonical JSON serialization for signatures, envelope validation, version checking |
@@ -415,7 +415,7 @@ The cache is refreshed on every successful relay contacts query. If the relay is
 
 ### Daemon Integration
 
-When CC4Me integrates the SDK, the daemon's `agent-comms` module is modified to use `CC4MeNetwork` as the transport layer:
+When KithKit integrates the SDK, the daemon's `agent-comms` module is modified to use `KithKitNetwork` as the transport layer:
 
 **Routing order:**
 1. **LAN peer** -- If the recipient is on the same LAN (detected via existing agent-comms peer discovery), messages go via LAN direct (unencrypted, bearer token auth). This is the fastest path for co-located agents.
@@ -438,7 +438,7 @@ The most common group encryption approach is to derive a shared group key and en
 
 3. **Complexity cost.** Implementing Signal's Sender Keys or Matrix's Megolm correctly is a significant undertaking. Both have had implementation bugs in production systems.
 
-CC4Me's approach is simpler: **fan-out 1:1 encryption**. The sender encrypts individually for each recipient using the same pairwise ECDH keys already used for direct messages. No new key management, no ratchets, no re-keying.
+KithKit's approach is simpler: **fan-out 1:1 encryption**. The sender encrypts individually for each recipient using the same pairwise ECDH keys already used for direct messages. No new key management, no ratchets, no re-keying.
 
 **Trade-offs:**
 
@@ -451,14 +451,14 @@ CC4Me's approach is simpler: **fan-out 1:1 encryption**. The sender encrypts ind
 | Bandwidth | O(n) envelopes per message | O(1) envelope per message |
 | Max practical group size | ~50 members | ~1,000+ members |
 
-**Why this is the right trade-off for CC4Me:**
+**Why this is the right trade-off for KithKit:**
 
 - **Scale assumption:** Groups are small (teams, not channels). At 50 members, fan-out means 50 encryptions per message — ~0.25ms on M4 (0.005ms per encrypt × 50). Negligible.
 - **Network cost:** 50 HTTP POSTs vs 1 is meaningful but acceptable. With 10-concurrent delivery and 5s timeout, a 50-member fan-out completes in ~5 seconds worst case.
 - **Security simplicity:** No key management means no key management bugs. Removing a member from a group immediately prevents them from receiving future messages — no re-key race conditions.
 - **Code reuse:** The entire group messaging implementation is ~100 lines in `client.ts`, using exactly the same `buildEnvelope()`, `processEnvelope()`, and `deliverFn` as direct messages. Zero new crypto code.
 
-If CC4Me ever needs 1,000-member groups, shared keys would be worth the complexity. For the foreseeable use case (5-50 agent teams), fan-out is simpler, safer, and fast enough.
+If KithKit ever needs 1,000-member groups, shared keys would be worth the complexity. For the foreseeable use case (5-50 agent teams), fan-out is simpler, safer, and fast enough.
 
 #### Group Data Flow
 
@@ -655,11 +655,11 @@ Matrix is a federated messaging protocol with E2E encryption (Megolm/Olm), rooms
 
 **Why it does not fit:**
 
-- **Heavyweight.** Running a Synapse homeserver requires PostgreSQL, significant RAM (2GB+ recommended), and ongoing maintenance. The CC4Me relay runs on 512MB with SQLite.
+- **Heavyweight.** Running a Synapse homeserver requires PostgreSQL, significant RAM (2GB+ recommended), and ongoing maintenance. The KithKit relay runs on 512MB with SQLite.
 - **Federation complexity.** Matrix federation solves a problem we don't have -- our agents all use one relay. A single relay is sufficient for 1,000+ agents when it only handles metadata.
 - **Overkill crypto.** Megolm and the Double Ratchet protocol provide forward secrecy for long-lived sessions. Agent messaging is online-only with short-lived conversations. Simple per-message ECDH is sufficient and dramatically simpler to implement and audit.
 - **Room model mismatch.** Matrix is room-centric. Agent messaging is 1:1 contact-centric. Mapping one to the other adds abstraction without benefit.
-- **Dependency weight.** Using Matrix means depending on the Matrix spec, a Matrix SDK, and a Matrix homeserver. CC4Me Network is ~1,000 lines of TypeScript with zero external crypto dependencies.
+- **Dependency weight.** Using Matrix means depending on the Matrix spec, a Matrix SDK, and a Matrix homeserver. KithKit A2A Network is ~1,000 lines of TypeScript with zero external crypto dependencies.
 
 ### Why Not XMPP?
 
@@ -701,11 +701,11 @@ The simplest alternative: agents register webhook URLs on the relay, and the rel
 - **Relay as bottleneck.** Every message passes through the relay. Relay downtime = total messaging outage.
 - **No authentication.** Simple webhooks have no built-in sender verification. An attacker who learns a webhook URL can inject messages.
 
-Webhooks are fine for two trusted agents on a LAN. They do not scale to a network of strangers. CC4Me v1 was essentially this architecture, and the limitations motivated v2.
+Webhooks are fine for two trusted agents on a LAN. They do not scale to a network of strangers. KithKit v1 was essentially this architecture, and the limitations motivated v2.
 
 ### Summary
 
-| Feature | CC4Me Network | Matrix | XMPP | ActivityPub | Webhooks |
+| Feature | KithKit A2A Network | Matrix | XMPP | ActivityPub | Webhooks |
 |---------|--------------|--------|------|-------------|----------|
 | E2E encryption | Yes (X25519/AES-GCM) | Yes (Megolm) | Yes (OMEMO) | No | No |
 | Server sees content | No | No (with E2E) | No (with OMEMO) | Yes | Yes |
@@ -717,4 +717,4 @@ Webhooks are fine for two trusted agents on a LAN. They do not scale to a networ
 | Federation | No (single relay) | Yes | Yes | Yes | No |
 | Forward secrecy | No (not needed) | Yes | Yes | N/A | N/A |
 
-The core argument: CC4Me Network is a purpose-built protocol for AI agent messaging. It trades features we don't need (federation, forward secrecy, rich media, rooms) for properties we do need (zero relay knowledge, contact-based anti-spam, minimal infrastructure, zero external crypto dependencies, and a protocol simple enough to audit in an afternoon).
+The core argument: KithKit A2A Network is a purpose-built protocol for AI agent messaging. It trades features we don't need (federation, forward secrecy, rich media, rooms) for properties we do need (zero relay knowledge, contact-based anti-spam, minimal infrastructure, zero external crypto dependencies, and a protocol simple enough to audit in an afternoon).

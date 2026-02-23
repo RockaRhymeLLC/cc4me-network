@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { CC4MeNetwork, type CC4MeNetworkInternalOptions } from '../client.js';
+import { A2ANetwork, type A2ANetworkInternalOptions } from '../client.js';
 import type {
   IRelayAPI,
   RelayContact,
@@ -25,24 +25,24 @@ import type {
 import type { WireEnvelope, Broadcast, ContactRequest } from '../types.js';
 
 // Import relay functions for the mock
-import { initializeDatabase } from 'cc4me-relay/dist/db.js';
+import { initializeDatabase } from 'kithkit-a2a-relay/dist/db.js';
 import {
   requestContact as relayRequestContact,
   acceptContact as relayAcceptContact,
   listContacts as relayListContacts,
   listPendingRequests as relayPendingRequests,
-} from 'cc4me-relay/dist/routes/contacts.js';
+} from 'kithkit-a2a-relay/dist/routes/contacts.js';
 import {
   updatePresence as relayUpdatePresence,
-} from 'cc4me-relay/dist/routes/presence.js';
+} from 'kithkit-a2a-relay/dist/routes/presence.js';
 import {
   createBroadcast as relayCreateBroadcast,
   listBroadcasts as relayListBroadcasts,
-} from 'cc4me-relay/dist/routes/admin.js';
+} from 'kithkit-a2a-relay/dist/routes/admin.js';
 import {
   approveAgent as relayApproveAgent,
   revokeAgent as relayRevokeAgent,
-} from 'cc4me-relay/dist/routes/registry.js';
+} from 'kithkit-a2a-relay/dist/routes/registry.js';
 
 function genKeypair() {
   const kp = generateKeyPairSync('ed25519');
@@ -242,12 +242,12 @@ function createNetworkClient(
   env: TestEnv,
   agent: 'admin-agent' | 'bob',
   deliverFn?: (endpoint: string, envelope: WireEnvelope) => Promise<boolean>,
-): CC4MeNetwork {
+): A2ANetwork {
   const keys = agent === 'admin-agent' ? env.adminKeys : env.bobKeys;
   const relay = agent === 'admin-agent' ? env.adminRelay : env.bobRelay;
   const dataDir = join(env.dir, `${agent}-data`);
 
-  return new CC4MeNetwork({
+  return new A2ANetwork({
     relayUrl: 'http://localhost:0',
     username: agent,
     privateKey: Buffer.from(keys.privateKeyDer),
@@ -256,7 +256,7 @@ function createNetworkClient(
     heartbeatInterval: 60_000,
     relayAPI: relay,
     deliverFn,
-  } as CC4MeNetworkInternalOptions);
+  } as A2ANetworkInternalOptions);
 }
 
 // ================================================================
@@ -264,7 +264,7 @@ function createNetworkClient(
 // ================================================================
 
 describe('t-070: SDK admin ops + delivery diagnostics', () => {
-  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+  let cleanups: Array<{ dir: string; networks: A2ANetwork[] }> = [];
 
   afterEach(async () => {
     for (const { networks, dir } of cleanups) {
@@ -276,7 +276,7 @@ describe('t-070: SDK admin ops + delivery diagnostics', () => {
     cleanups = [];
   });
 
-  function track(env: TestEnv, ...networks: CC4MeNetwork[]) {
+  function track(env: TestEnv, ...networks: A2ANetwork[]) {
     cleanups.push({ dir: env.dir, networks });
   }
 

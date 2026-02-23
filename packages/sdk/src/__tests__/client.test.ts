@@ -14,12 +14,12 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'no
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { CC4MeNetwork, type CC4MeNetworkInternalOptions } from '../client.js';
+import { A2ANetwork, type A2ANetworkInternalOptions } from '../client.js';
 import { loadCache, getCachePath } from '../cache.js';
 import type { IRelayAPI, RelayContact, RelayPendingRequest, RelayResponse } from '../relay-api.js';
 
 // Import relay functions directly for the mock
-import { initializeDatabase } from 'cc4me-relay/dist/db.js';
+import { initializeDatabase } from 'kithkit-a2a-relay/dist/db.js';
 import {
   requestContact as relayRequestContact,
   listPendingRequests as relayPendingRequests,
@@ -27,10 +27,10 @@ import {
   denyContact as relayDenyContact,
   removeContact as relayRemoveContact,
   listContacts as relayListContacts,
-} from 'cc4me-relay/dist/routes/contacts.js';
+} from 'kithkit-a2a-relay/dist/routes/contacts.js';
 import {
   updatePresence as relayUpdatePresence,
-} from 'cc4me-relay/dist/routes/presence.js';
+} from 'kithkit-a2a-relay/dist/routes/presence.js';
 
 function genKeypair() {
   const kp = generateKeyPairSync('ed25519');
@@ -197,12 +197,12 @@ function createNetworkClient(
   env: TestEnv,
   agent: 'alice' | 'bob',
   dataDirSuffix: string = '',
-): CC4MeNetwork {
+): A2ANetwork {
   const keys = agent === 'alice' ? env.aliceKeys : env.bobKeys;
   const relay = agent === 'alice' ? env.aliceRelay : env.bobRelay;
   const dataDir = join(env.dir, `${agent}-data${dataDirSuffix}`);
 
-  return new CC4MeNetwork({
+  return new A2ANetwork({
     relayUrl: 'http://localhost:0', // not used — mock relay
     username: agent,
     privateKey: Buffer.from(keys.privateKeyDer),
@@ -210,7 +210,7 @@ function createNetworkClient(
     dataDir,
     heartbeatInterval: 60_000, // Long interval — we call manually in tests
     relayAPI: relay,
-  } as CC4MeNetworkInternalOptions);
+  } as A2ANetworkInternalOptions);
 }
 
 // ================================================================
@@ -218,7 +218,7 @@ function createNetworkClient(
 // ================================================================
 
 describe('t-065: SDK local cache: contacts cached, works during relay outage', () => {
-  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+  let cleanups: Array<{ dir: string; networks: A2ANetwork[] }> = [];
 
   afterEach(async () => {
     for (const { networks, dir } of cleanups) {
@@ -230,7 +230,7 @@ describe('t-065: SDK local cache: contacts cached, works during relay outage', (
     cleanups = [];
   });
 
-  function track(env: TestEnv, ...networks: CC4MeNetwork[]) {
+  function track(env: TestEnv, ...networks: A2ANetwork[]) {
     cleanups.push({ dir: env.dir, networks });
   }
 
@@ -400,7 +400,7 @@ describe('t-065: SDK local cache: contacts cached, works during relay outage', (
 // ================================================================
 
 describe('SDK client: lifecycle and contacts', () => {
-  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+  let cleanups: Array<{ dir: string; networks: A2ANetwork[] }> = [];
 
   afterEach(async () => {
     for (const { networks, dir } of cleanups) {
@@ -412,7 +412,7 @@ describe('SDK client: lifecycle and contacts', () => {
     cleanups = [];
   });
 
-  function track(env: TestEnv, ...networks: CC4MeNetwork[]) {
+  function track(env: TestEnv, ...networks: A2ANetwork[]) {
     cleanups.push({ dir: env.dir, networks });
   }
 

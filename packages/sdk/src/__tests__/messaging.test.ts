@@ -14,21 +14,21 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { CC4MeNetwork, type CC4MeNetworkInternalOptions } from '../client.js';
+import { A2ANetwork, type A2ANetworkInternalOptions } from '../client.js';
 import type { IRelayAPI, RelayContact, RelayPendingRequest, RelayResponse } from '../relay-api.js';
 import type { WireEnvelope, Message, DeliveryStatus } from '../types.js';
 
 // Import relay functions directly for the mock
-import { initializeDatabase } from 'cc4me-relay/dist/db.js';
+import { initializeDatabase } from 'kithkit-a2a-relay/dist/db.js';
 import {
   requestContact as relayRequestContact,
   acceptContact as relayAcceptContact,
   listContacts as relayListContacts,
   listPendingRequests as relayPendingRequests,
-} from 'cc4me-relay/dist/routes/contacts.js';
+} from 'kithkit-a2a-relay/dist/routes/contacts.js';
 import {
   updatePresence as relayUpdatePresence,
-} from 'cc4me-relay/dist/routes/presence.js';
+} from 'kithkit-a2a-relay/dist/routes/presence.js';
 
 function genKeypair() {
   const kp = generateKeyPairSync('ed25519');
@@ -196,7 +196,7 @@ function setupTestEnv(): TestEnv {
  * When `recipientNetwork` is provided, it calls receiveMessage on delivery.
  * When `shouldFail` is true, delivery always fails (simulating offline endpoint).
  */
-function createDeliverFn(env: TestEnv, recipientNetwork?: CC4MeNetwork, shouldFail = false) {
+function createDeliverFn(env: TestEnv, recipientNetwork?: A2ANetwork, shouldFail = false) {
   return async (_endpoint: string, envelope: WireEnvelope): Promise<boolean> => {
     env.deliveredEnvelopes.push(envelope);
     if (shouldFail) return false;
@@ -218,12 +218,12 @@ function createNetworkClient(
   deliverFn?: (endpoint: string, envelope: WireEnvelope) => Promise<boolean>,
   retryDelays?: number[],
   retryProcessInterval?: number,
-): CC4MeNetwork {
+): A2ANetwork {
   const keys = agent === 'alice' ? env.aliceKeys : env.bobKeys;
   const relay = agent === 'alice' ? env.aliceRelay : env.bobRelay;
   const dataDir = join(env.dir, `${agent}-data`);
 
-  return new CC4MeNetwork({
+  return new A2ANetwork({
     relayUrl: 'http://localhost:0',
     username: agent,
     privateKey: Buffer.from(keys.privateKeyDer),
@@ -234,11 +234,11 @@ function createNetworkClient(
     deliverFn,
     retryDelays,
     retryProcessInterval,
-  } as CC4MeNetworkInternalOptions);
+  } as A2ANetworkInternalOptions);
 }
 
 /** Establish mutual contacts between Alice and Bob. */
-async function establishContacts(alice: CC4MeNetwork, bob: CC4MeNetwork) {
+async function establishContacts(alice: A2ANetwork, bob: A2ANetwork) {
   await alice.requestContact('bob');
   await bob.acceptContact('alice');
   // Refresh caches so both sides have each other's public keys
@@ -256,7 +256,7 @@ function sleep(ms: number): Promise<void> {
 // ================================================================
 
 describe('t-063: SDK E2E: send encrypted, receive + verify + decrypt', () => {
-  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+  let cleanups: Array<{ dir: string; networks: A2ANetwork[] }> = [];
 
   afterEach(async () => {
     for (const { networks, dir } of cleanups) {
@@ -268,7 +268,7 @@ describe('t-063: SDK E2E: send encrypted, receive + verify + decrypt', () => {
     cleanups = [];
   });
 
-  function track(env: TestEnv, ...networks: CC4MeNetwork[]) {
+  function track(env: TestEnv, ...networks: A2ANetwork[]) {
     cleanups.push({ dir: env.dir, networks });
   }
 
@@ -373,8 +373,8 @@ describe('t-063: SDK E2E: send encrypted, receive + verify + decrypt', () => {
     const env = setupTestEnv();
 
     // Use closure pattern so delivery functions reference the final instances
-    let alice: CC4MeNetwork;
-    let bob: CC4MeNetwork;
+    let alice: A2ANetwork;
+    let bob: A2ANetwork;
 
     const aliceDeliverFn = async (_ep: string, envelope: WireEnvelope) => {
       try { bob.receiveMessage(envelope); return true; } catch { return false; }
@@ -522,7 +522,7 @@ describe('t-063: SDK E2E: send encrypted, receive + verify + decrypt', () => {
 // ================================================================
 
 describe('t-064: SDK presence-gated: offline → queued → retry → delivered', () => {
-  let cleanups: Array<{ dir: string; networks: CC4MeNetwork[] }> = [];
+  let cleanups: Array<{ dir: string; networks: A2ANetwork[] }> = [];
 
   afterEach(async () => {
     for (const { networks, dir } of cleanups) {
@@ -534,7 +534,7 @@ describe('t-064: SDK presence-gated: offline → queued → retry → delivered'
     cleanups = [];
   });
 
-  function track(env: TestEnv, ...networks: CC4MeNetwork[]) {
+  function track(env: TestEnv, ...networks: A2ANetwork[]) {
     cleanups.push({ dir: env.dir, networks });
   }
 
@@ -577,7 +577,7 @@ describe('t-064: SDK presence-gated: offline → queued → retry → delivered'
     const env = setupTestEnv();
 
     // Track delivery attempts
-    let bobNetwork: CC4MeNetwork | null = null;
+    let bobNetwork: A2ANetwork | null = null;
     const deliverFn = async (_endpoint: string, envelope: WireEnvelope): Promise<boolean> => {
       env.deliveredEnvelopes.push(envelope);
       if (!bobNetwork) return false; // Bob offline
@@ -647,7 +647,7 @@ describe('t-064: SDK presence-gated: offline → queued → retry → delivered'
     // Override retryQueueMax to 1
     const keys = env.aliceKeys;
     const dataDir = join(env.dir, 'alice-data');
-    const alice = new CC4MeNetwork({
+    const alice = new A2ANetwork({
       relayUrl: 'http://localhost:0',
       username: 'alice',
       privateKey: Buffer.from(keys.privateKeyDer),
@@ -659,7 +659,7 @@ describe('t-064: SDK presence-gated: offline → queued → retry → delivered'
       deliverFn: createDeliverFn(env, bob, true), // Always fail delivery
       retryDelays: [100000], // Very long retry so queue stays full
       retryProcessInterval: 100000,
-    } as CC4MeNetworkInternalOptions);
+    } as A2ANetworkInternalOptions);
     track(env, alice, bob);
 
     await alice.start();

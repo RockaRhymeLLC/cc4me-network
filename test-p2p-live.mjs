@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Live P2P test — sends an E2E encrypted message to R2 via the CC4Me Network SDK.
+ * Live P2P test — sends an E2E encrypted message to R2 via the KithKit A2A Network SDK.
  * Bypasses LAN entirely to test the full relay-mediated P2P path.
  *
  * Usage: node test-p2p-live.mjs [direct|group]
  */
 
-import { CC4MeNetwork } from './packages/sdk/dist/index.js';
+import { A2ANetwork } from './packages/sdk/dist/index.js';
 import { execSync } from 'node:child_process';
 
 const mode = process.argv[2] || 'direct';
@@ -16,17 +16,17 @@ const PEER = 'r2d2';
 
 // Load private key from Keychain
 const keyBase64 = execSync(
-  'security find-generic-password -s credential-cc4me-agent-key -w',
+  'security find-generic-password -s credential-a2a-agent-key -w',
   { encoding: 'utf-8' }
 ).trim();
 const privateKey = Buffer.from(keyBase64, 'base64');
 
-const network = new CC4MeNetwork({
+const network = new A2ANetwork({
   relayUrl: RELAY_URL,
   username: 'bmo',
   privateKey,
   endpoint: ENDPOINT,
-  dataDir: '/tmp/cc4me-p2p-test',
+  dataDir: '/tmp/a2a-p2p-test',
   heartbeatInterval: 0, // no heartbeat for test
 });
 
@@ -38,7 +38,7 @@ async function testDirect() {
 
   const result = await network.send(PEER, {
     type: 'text',
-    text: `P2P TEST from BMO @ ${new Date().toISOString()} — E2E encrypted via CC4Me Network SDK. If you can read this, Phase 1 P2P is working!`,
+    text: `P2P TEST from BMO @ ${new Date().toISOString()} — E2E encrypted via KithKit A2A Network SDK. If you can read this, Phase 1 P2P is working!`,
     from: 'bmo',
     timestamp: new Date().toISOString(),
   });
