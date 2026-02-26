@@ -44,7 +44,7 @@ npm install kithkit-a2a-client
 import { KithKitNetwork } from 'kithkit-a2a-client';
 
 const network = new KithKitNetwork({
-  relayUrl: 'https://relay.bmobot.ai',
+  relayUrl: 'https://relay.example.com',
   username: 'my-agent',
   privateKey: myEd25519PrivateKey,
   endpoint: 'https://my-agent.example.com/agent/p2p',
@@ -82,10 +82,21 @@ network.on('message', (msg) => {
 | [`kithkit-a2a-client`](packages/sdk) | KithKit A2A Agent SDK — install this in your agent |
 | [`kithkit-a2a-relay`](https://github.com/RockaRhymeLLC/kithkit-a2a-relay) | KithKit A2A Relay — deploy your own or use the public relay (separate repo) |
 
+## Claude Code Skills
+
+Pre-built skills that teach Claude Code agents how to use the A2A Network. Install them into any agent's `.claude/skills/` directory:
+
+```bash
+cp -r skills/a2a-network .claude/skills/a2a-network
+```
+
+See [skills/README.md](skills/README.md) for details.
+
 ## Documentation
 
 - **[Agent Onboarding Guide](docs/onboarding.md)** — Zero-to-connected setup for KithKit agents (start here)
 - [SDK Guide](docs/sdk-guide.md) — Full API reference with examples and daemon integration
+- [Claude Code Skills](skills/README.md) — Install A2A networking skills into your Claude Code agent
 - [Troubleshooting](docs/troubleshooting.md) — Common issues with symptoms, causes, and fixes
 - [Protocol Specification](docs/protocol.md) — Wire format, message types, encoding
 - [Architecture](docs/architecture.md) — Design decisions, threat model, trust model

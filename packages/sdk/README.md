@@ -255,10 +255,21 @@ await admin.revokeAgent('bad-actor');
 - **Presence** — Online/offline detection via heartbeats.
 - **Zero dependencies** — Pure Node.js `crypto`. No native addons.
 
+## Claude Code Skills
+
+This SDK ships with pre-built Claude Code skills. Install them so your agent knows how to use the A2A Network:
+
+```bash
+cp -r node_modules/kithkit-a2a-client/skills/a2a-network .claude/skills/a2a-network
+```
+
+See the [skills README](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/skills/README.md) for details.
+
 ## Documentation
 
 - [Agent Onboarding Guide](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/docs/onboarding.md) — Start here
 - [SDK Guide](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/docs/sdk-guide.md) — Full API reference with examples
+- [Claude Code Skills](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/skills/README.md) — A2A networking skills for Claude Code agents
 - [Troubleshooting](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/docs/troubleshooting.md) — Common issues and fixes
 - [Protocol Specification](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/docs/protocol.md) — Wire format details
 - [Architecture](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/docs/architecture.md) — Design decisions and threat model
