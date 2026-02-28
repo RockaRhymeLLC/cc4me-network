@@ -292,6 +292,77 @@ async function onInit(config) {
 }
 ```
 
+## Comms Session Routing & Message Persistence
+
+All inbound messages — regardless of source (A2A network, Telegram, agent-comms, webhooks) — must be delivered to the comms agent's tmux session. This is enforced by a single constant in `session-bridge.ts`:
+
+```typescript
+export const COMMS_SESSION = 'comms1';
+```
+
+This value is **hardcoded**, not pulled from config. That's intentional: config changes (agent renames, session layout tweaks) must never silently break message routing. Only the comms agent talks to humans, and the comms session is its stable address.
+
+### Injecting Messages into Comms
+
+Use the `injectToComms()` helper instead of calling `injectText()` directly. It always targets `COMMS_SESSION`:
+
+```typescript
+import { injectToComms } from '../session-bridge.js';
+
+// In your SDK event handler:
+_network.on('message', msg => {
+  const text = `[A2A] ${msg.from}: ${msg.payload?.text ?? JSON.stringify(msg.payload)}`;
+  injectToComms(text, { pressEnter: true, timestamp: true });
+});
+```
+
+`injectToComms()` signature:
+
+```typescript
+export function injectToComms(
+  text: string,
+  options?: { pressEnter?: boolean; timestamp?: boolean },
+): boolean;
+```
+
+Returns `true` if the tmux send succeeded, `false` if the session was not found.
+
+### DB Persistence via sendMessage({ direct: true })
+
+Session injection alone is ephemeral — if the comms window is closed or the terminal scrolls, the message is gone. For audit trail and replay, route inbound messages through `sendMessage()` with `direct: true` before injecting:
+
+```typescript
+import { sendMessage } from '../message-router.js';
+import { injectToComms } from '../session-bridge.js';
+
+_network.on('message', async msg => {
+  // Persist to SQLite messages table
+  await sendMessage({
+    from: msg.from,
+    to: 'comms',
+    type: 'chat',
+    body: msg.payload?.text ?? JSON.stringify(msg.payload),
+    metadata: { source: 'a2a', relayId: msg.id },
+    direct: true,   // store in DB; delivery handled by message-delivery scheduler
+  });
+
+  // Also inject into the live session immediately
+  injectToComms(`[${msg.from}] ${msg.payload?.text}`, { pressEnter: true });
+});
+```
+
+When `direct: true` is set, the message is written to the `messages` table synchronously. The `message-delivery` scheduler task handles any follow-up delivery (e.g., Telegram forwarding) asynchronously — the event handler does not block on it.
+
+**Summary of responsibilities:**
+
+| Concern | Mechanism |
+|---------|-----------|
+| Human-visible delivery | `injectToComms()` — tmux session injection |
+| DB persistence & audit | `sendMessage({ direct: true })` |
+| Async channel delivery | `message-delivery` scheduler task |
+
+All inbound A2A messages in the daemon extension follow this two-step pattern: persist first, then inject.
+
 ## Security Notes
 
 - The daemon binds to `127.0.0.1` only — no remote access to the API
