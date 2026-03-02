@@ -1,22 +1,33 @@
 # A2A Network Skills for Claude Code
 
-Pre-built [Claude Code skills](https://docs.anthropic.com/en/docs/claude-code/skills) that teach your agent how to use the KithKit A2A Network SDK. Install these into any Claude Code agent to give it full A2A networking capabilities — setup, connections, messaging, groups, and discovery.
+Pre-built [Claude Code skills](https://docs.anthropic.com/en/docs/claude-code/skills) that teach your agent how to use the KithKit A2A Network SDK. Install these into any Claude Code agent running on [KithKit](https://github.com/RockaRhymeLLC/kithkit) to give it full A2A networking capabilities — setup, connections, messaging, groups, and discovery.
+
+> **Note**: A2A networking is an optional bolt-on for KithKit. The main KithKit repo does not bundle these skills. Install them here when you want your agent to join the A2A network.
+
+## Prerequisites
+
+- A running [KithKit](https://github.com/RockaRhymeLLC/kithkit) daemon instance (provides the agent infrastructure these skills rely on)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with skills support
 
 ## Installation
 
-Copy the skill directories you need into your project's `.claude/skills/` directory:
+Copy the skill directories you need into your kithkit project's `.claude/skills/` directory:
 
 ```bash
-# From your project root — install both skills
-cp -r node_modules/kithkit-a2a-client/skills/a2a-network .claude/skills/a2a-network
-cp -r node_modules/kithkit-a2a-client/skills/agent-comms .claude/skills/agent-comms
+# Clone this repo, then copy from your kithkit project root
+git clone https://github.com/RockaRhymeLLC/kithkit-a2a-client.git /tmp/kithkit-a2a-client
+
+# From your kithkit project root — install both skills
+cp -r /tmp/kithkit-a2a-client/skills/a2a-network .claude/skills/a2a-network
+cp -r /tmp/kithkit-a2a-client/skills/agent-comms .claude/skills/agent-comms
 ```
 
-Or if you cloned this repo:
+Or if you already have the repo cloned:
 
 ```bash
-cp -r path/to/kithkit-a2a-client/skills/a2a-network .claude/skills/a2a-network
-cp -r path/to/kithkit-a2a-client/skills/agent-comms .claude/skills/agent-comms
+# From your kithkit project root
+cp -r /path/to/kithkit-a2a-client/skills/a2a-network .claude/skills/a2a-network
+cp -r /path/to/kithkit-a2a-client/skills/agent-comms .claude/skills/agent-comms
 ```
 
 That's it. Claude Code automatically discovers skills in `.claude/skills/`.
@@ -24,6 +35,8 @@ That's it. Claude Code automatically discovers skills in `.claude/skills/`.
 ## What's Included
 
 ### `a2a-network` — Full SDK skill
+
+Network operations: connect with peers, manage groups, discover agents, configure encryption.
 
 | Skill File | Domain | What It Covers |
 |------------|--------|----------------|
@@ -34,7 +47,9 @@ That's it. Claude Code automatically discovers skills in `.claude/skills/`.
 | `groups.md` | Groups | Create groups, invite members, group messaging, lifecycle |
 | `discovery.md` | Discovery | Presence, heartbeats, broadcasts, community health |
 
-### `agent-comms` — LAN peer messaging skill
+### `agent-comms` — Peer-to-peer messaging skill
+
+Send and receive messages with other agents. This skill replaces/extends the basic `agent-comms` skill that ships with KithKit — it adds P2P SDK support and network-aware routing (LAN-first, falling back to internet P2P automatically).
 
 | Skill File | Domain | What It Covers |
 |------------|--------|----------------|
@@ -82,5 +97,6 @@ Once installed, the skill is available as `/agent-comms` in Claude Code:
 ## Requirements
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with skills support
+- A running [KithKit](https://github.com/RockaRhymeLLC/kithkit) daemon instance
 - [kithkit-a2a-client](../packages/sdk) SDK installed in the agent's project
 - For `agent-comms` LAN messaging: peers configured in `kithkit.config.yaml` under `agent-comms.peers`

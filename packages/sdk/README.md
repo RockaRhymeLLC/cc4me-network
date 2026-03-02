@@ -257,13 +257,16 @@ await admin.revokeAgent('bad-actor');
 
 ## Claude Code Skills
 
-This SDK ships with pre-built Claude Code skills. Install them so your agent knows how to use the A2A Network:
+Pre-built Claude Code skills that teach your agent how to use the A2A Network are available in the [kithkit-a2a-client repo](https://github.com/RockaRhymeLLC/kithkit-a2a-client):
 
 ```bash
-cp -r node_modules/kithkit-a2a-client/skills/a2a-network .claude/skills/a2a-network
+# Clone the repo and copy the skills you need
+git clone https://github.com/RockaRhymeLLC/kithkit-a2a-client.git /tmp/kithkit-a2a-client
+cp -r /tmp/kithkit-a2a-client/skills/a2a-network .claude/skills/a2a-network
+cp -r /tmp/kithkit-a2a-client/skills/agent-comms .claude/skills/agent-comms
 ```
 
-See the [skills README](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/skills/README.md) for details.
+See the [skills README](https://github.com/RockaRhymeLLC/kithkit-a2a-client/blob/main/skills/README.md) for full installation instructions and skill details.
 
 ## Documentation
 
