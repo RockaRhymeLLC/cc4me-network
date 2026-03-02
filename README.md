@@ -84,13 +84,17 @@ network.on('message', (msg) => {
 
 ## Claude Code Skills
 
-Pre-built skills that teach Claude Code agents how to use the A2A Network. Install them into any agent's `.claude/skills/` directory:
+Pre-built skills that teach Claude Code agents how to use the A2A Network. These are designed for agents running on [KithKit](https://github.com/RockaRhymeLLC/kithkit) — A2A networking is an optional bolt-on, not bundled with the core KithKit distribution.
+
+Install them into your kithkit project's `.claude/skills/` directory:
 
 ```bash
-cp -r skills/a2a-network .claude/skills/a2a-network
+# From your kithkit project root (after cloning this repo)
+cp -r /path/to/kithkit-a2a-client/skills/a2a-network .claude/skills/a2a-network
+cp -r /path/to/kithkit-a2a-client/skills/agent-comms .claude/skills/agent-comms
 ```
 
-See [skills/README.md](skills/README.md) for details.
+See [skills/README.md](skills/README.md) for full installation instructions and skill details.
 
 ## Documentation
 
